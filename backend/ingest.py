@@ -46,8 +46,34 @@ def is_candidate(path: str) -> bool:
     return ext in EXTENSIONS
 
 
-def _framework(csproj: str) -> tuple[str, str]:
-    m = re.search(r"<TargetFrameworks?>([^<]+)</TargetFrameworks?>", csproj)
+def _framework(csproj: str, inherited: list[str] | None = None) -> tuple[str, str]:
+    """Framework + system from the project file, falling back to Directory.Build.props
+    files (nearest first) that SDK-style solutions use to set TargetFramework centrally."""
+    for text in [csproj, *(inherited or [])]:
+        found = _framework_in(text)
+        if found:
+            return found
+    if re.search(r"<Project\s+Sdk=", csproj):
+        return ".NET (SDK-style)", "modern"
+    return "Unknown", "legacy"
+
+
+def _build_props_chain(project_path: str, by_path: dict[str, str]) -> list[str]:
+    folder = posixpath.dirname(project_path)
+    chain = []
+    while True:
+        props = by_path.get(posixpath.join(folder, "Directory.Build.props").lower())
+        if props:
+            chain.append(props)
+        if not folder:
+            break
+        folder = posixpath.dirname(folder)
+    return chain
+
+
+def _framework_in(text: str) -> tuple[str, str] | None:
+    m = re.search(r"<TargetFrameworks?>([^<$]+)</TargetFrameworks?>", text)
+    csproj = text
     if m:
         tfm = m.group(1).split(";")[0].strip()
         if tfm.startswith("net4"):
@@ -61,10 +87,10 @@ def _framework(csproj: str) -> tuple[str, str]:
         if m2:
             return f".NET {m2.group(1)}", "modern"
         return tfm, "modern"
-    m = re.search(r"<TargetFrameworkVersion>v?([^<]+)</TargetFrameworkVersion>", csproj)
+    m = re.search(r"<TargetFrameworkVersion>v?([^<$]+)</TargetFrameworkVersion>", csproj)
     if m:
         return f".NET Framework {m.group(1)}", "legacy"
-    return "Unknown", "legacy"
+    return None
 
 
 def _slug(name: str) -> str:
@@ -96,6 +122,7 @@ def analyze_upload(files: list[dict]) -> dict:
     by_ext = Counter(posixpath.splitext(f["path"].lower())[1] for f in kept)
     solutions = sorted(posixpath.basename(f["path"]) for f in kept if f["path"].lower().endswith(".sln"))
     csprojs = [f for f in kept if f["path"].lower().endswith((".csproj", ".vbproj"))]
+    props_by_path = {f["path"].lower(): f["content"] for f in kept if f["path"].lower().endswith("directory.build.props")}
     lines = sum(f["content"].count("\n") + 1 for f in kept)
 
     findings = []
@@ -117,7 +144,7 @@ def analyze_upload(files: list[dict]) -> dict:
     projects, articles = [], []
     for proj in csprojs:
         name = posixpath.splitext(posixpath.basename(proj["path"]))[0]
-        framework, system = _framework(proj["content"])
+        framework, system = _framework(proj["content"], _build_props_chain(proj["path"], props_by_path))
         folder = posixpath.dirname(proj["path"])
         members = [f for f in kept if posixpath.dirname(f["path"]).startswith(folder)] if folder else kept
         local = []

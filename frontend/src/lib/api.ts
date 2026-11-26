@@ -38,13 +38,14 @@ export async function api<T>(path: string, opts: ApiOptions = {}): Promise<T> {
   const headers: Record<string, string> = { Accept: "application/json" };
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
-  if (opts.body !== undefined) headers["Content-Type"] = "application/json";
+  const isForm = opts.body instanceof FormData;
+  if (opts.body !== undefined && !isForm) headers["Content-Type"] = "application/json";
   let res: Response;
   try {
     res = await fetch(`${API_URL}/api${path}`, {
       method: opts.method ?? (opts.body !== undefined ? "POST" : "GET"),
       headers,
-      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+      body: opts.body === undefined ? undefined : isForm ? (opts.body as FormData) : JSON.stringify(opts.body),
       signal: opts.signal,
     });
   } catch {
@@ -272,5 +273,8 @@ export interface IngestResult {
   projects: { slug: string; name: string; system: System; framework: string; stack: string[]; created: boolean }[];
   articles: { slug: string; title: string; doc_id: string; section: string; project: string; created: boolean }[];
   truncated: boolean;
-  source?: { repo: string; ref: string; path: string | null; url: string; files_read: number; files_skipped: number; truncated: boolean; authenticated: boolean };
+  source?: {
+    kind: "github" | "bitbucket" | "git" | "archive"; repo?: string; host?: string; name?: string; ref?: string | null; path?: string | null;
+    url?: string; files_read: number; files_skipped: number; truncated: boolean; authenticated?: boolean;
+  };
 }

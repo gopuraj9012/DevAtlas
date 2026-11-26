@@ -40,6 +40,7 @@ Hard rules that will break the deploy if ignored:
 │   ├── deployments.py       # IIS vs container deploy flows (307)
 │   ├── ingest.py            # static analysis of an uploaded .NET folder (468)
 │   ├── github_repo.py       # read a repo straight from GitHub (233)
+│   ├── repo_sources.py      # zip upload, Bitbucket and any-Git-URL readers
 │   ├── search.py            # ranked cross-collection search (341)
 │   ├── impact.py            # contract impact graph (158)
 │   ├── contract_export.py   # JSON Schema + T-SQL DDL (276)
@@ -155,7 +156,7 @@ Roughly ten groups:
 **Guided checklists** — `GET /projects/{slug}/checklist`, `POST /projects/{slug}/checklist/step`
 **Stored procedures** — `GET /projects/{slug}/procedures`
 **Data contracts** — `GET /contracts`, `GET /contracts/meta`, `GET /contracts/{code}`, `GET /contracts/graph`, `GET /contracts/{code}/schema.json`, `GET /contracts/{code}/schema.sql`
-**Ingest** — `POST /ingest` (Maint., folder upload), `POST /ingest/github` (Maint., repo read)
+**Ingest** — `POST /ingest` (Maint., folder upload), `POST /ingest/archive` (Maint., zip upload), `POST /ingest/github`, `POST /ingest/bitbucket`, `POST /ingest/git` (Maint., repo reads)
 **Search** — `GET /search?q=&limit=`
 **Feedback** — `GET /feedback`, `GET /feedback/meta`, `GET /feedback/targets`, `POST /feedback`, `POST /feedback/{id}/vote`, `POST /feedback/{id}/status` (Maint.)
 **Insight** — `GET /coverage/migration`, `GET /architecture/service-graph`
@@ -168,8 +169,11 @@ Roughly ten groups:
 Both import paths converge on one analysis function, so folder upload and GitHub read can never drift apart:
 
 ```
-POST /ingest          ─┐
-POST /ingest/github   ─┴→ analyze_upload(files) → projects + findings + articles → Mongo
+POST /ingest            ─┐
+POST /ingest/archive    ─┤
+POST /ingest/github     ─┼→ analyze_upload(files) → projects + findings + articles → Mongo
+POST /ingest/bitbucket  ─┤
+POST /ingest/git        ─┘
 ```
 
 - `is_candidate()` filters by extension and skips `bin/obj/node_modules/packages/.git`.
@@ -304,6 +308,9 @@ DB_NAME=...          # injected in production
 CORS_ORIGINS=...
 JWT_SECRET=...       # must be set in production
 GITHUB_TOKEN=...     # optional: private repos + higher rate limit
+BITBUCKET_USERNAME=... / BITBUCKET_APP_PASSWORD=... or BITBUCKET_TOKEN=...  # optional: private Bitbucket Cloud
+GIT_HTTP_USERNAME=... / GIT_HTTP_TOKEN=...  # optional: private repos on any https Git host
+GIT_ALLOWED_HOSTS=... # optional: restrict /ingest/git to these hosts
 
 # frontend/.env
 VITE_BACKEND_URL=    # managed by the platform, leave it alone

@@ -9,8 +9,15 @@ export function IngestResult({ r }: { r: Result }) {
     <div className="space-y-6">
       {r.source && (
         <Card className="p-4 text-[13px]">
-          Read <a href={r.source.url} target="_blank" rel="noreferrer" className="font-mono font-medium text-primary hover:underline">{r.source.repo}@{r.source.ref}{r.source.path ? `/${r.source.path}` : ""}</a>:{" "}
-          {r.source.files_read} files read, {r.source.files_skipped} skipped{r.source.authenticated ? ", using the backend token" : ", anonymously"}.
+          {r.source.kind === "archive" ? (
+            <>Read <span className="font-mono font-medium">{r.source.name}</span>: {r.source.files_read} files read, {r.source.files_skipped} skipped.</>
+          ) : (
+            <>
+              Read {r.source.kind === "bitbucket" ? "Bitbucket" : r.source.kind === "git" ? r.source.host : "GitHub"}{" "}
+              <a href={r.source.url} target="_blank" rel="noreferrer" className="break-all font-mono font-medium text-primary hover:underline">{r.source.repo}{r.source.ref ? `@${r.source.ref}` : ""}{r.source.path ? `/${r.source.path}` : ""}</a>:{" "}
+              {r.source.files_read} files read, {r.source.files_skipped} skipped{r.source.authenticated ? ", using the backend credentials" : ", anonymously"}.
+            </>
+          )}
         </Card>
       )}
       {(r.truncated || r.source?.truncated) && (

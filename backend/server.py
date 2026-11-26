@@ -6,6 +6,7 @@ only health, signup and login are on `public_router`.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 from contextlib import asynccontextmanager
@@ -18,7 +19,7 @@ import jwt
 from bson import ObjectId
 from bson.errors import InvalidId
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -35,6 +36,7 @@ import servicegraph  # noqa: E402
 from datacontracts import CHANGE_POLICY, CONTRACT_KINDS, CONTRACTS, DIRECTIONS, owner_system  # noqa: E402
 from deployments import FLOWS, STAGES, enrich_flow  # noqa: E402
 from github_repo import GithubError, fetch_repo_files  # noqa: E402
+from repo_sources import MAX_ARCHIVE_BYTES, SourceError, fetch_bitbucket_files, fetch_git_files, read_zip  # noqa: E402
 from impact import build_graph  # noqa: E402
 from ingest import analyze_upload  # noqa: E402
 from md_blocks import blocks_to_md, md_to_blocks, read_minutes  # noqa: E402
@@ -921,6 +923,12 @@ async def ingest_github(body: GithubIngestIn, user: dict = Depends(require_maint
         files, source = await fetch_repo_files(body.repo, body.ref, body.path)
     except GithubError as e:
         raise HTTPException(e.status, e.detail)
+    source.setdefault("kind", "github")
+    return await _ingest_from_source(files, source, user)
+
+
+async def _ingest_from_source(files: list[dict], source: dict, user: dict) -> dict:
+    """Shared tail for every remote/archive source: same analysis + persistence as the folder upload."""
     if not files:
         raise HTTPException(422, "No .NET files were found at that location.")
     try:
@@ -931,6 +939,43 @@ async def ingest_github(body: GithubIngestIn, user: dict = Depends(require_maint
         raise
     result["source"] = source
     return result
+
+
+class GitIngestIn(BaseModel):
+    url: str = Field(max_length=500)
+    ref: str | None = Field(default=None, max_length=200)
+    path: str | None = Field(default=None, max_length=400)
+
+
+@api_router.post("/ingest/git")
+async def ingest_git(body: GitIngestIn, user: dict = Depends(require_maintainer)):
+    try:
+        files, source = await fetch_git_files(body.url, body.ref, body.path)
+    except SourceError as e:
+        raise HTTPException(e.status, e.detail)
+    return await _ingest_from_source(files, source, user)
+
+
+@api_router.post("/ingest/bitbucket")
+async def ingest_bitbucket(body: GithubIngestIn, user: dict = Depends(require_maintainer)):
+    try:
+        files, source = await fetch_bitbucket_files(body.repo, body.ref, body.path)
+    except SourceError as e:
+        raise HTTPException(e.status, e.detail)
+    return await _ingest_from_source(files, source, user)
+
+
+@api_router.post("/ingest/archive")
+async def ingest_archive(file: UploadFile = File(...), user: dict = Depends(require_maintainer)):
+    name = (file.filename or "upload.zip").rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+    if not name.lower().endswith(".zip"):
+        raise HTTPException(400, "Upload a .zip archive of the codebase.")
+    data = await file.read(MAX_ARCHIVE_BYTES + 1)
+    try:
+        files, source = await asyncio.to_thread(read_zip, data, name)
+    except SourceError as e:
+        raise HTTPException(e.status, e.detail)
+    return await _ingest_from_source(files, source, user)
 
 
 # ---------------------------------------------------------------- search
@@ -1068,6 +1113,16 @@ async def migration_coverage():
 @api_router.get("/architecture/service-graph")
 async def service_graph():
     return servicegraph.build()
+
+
+@app.middleware("http")
+async def cap_archive_upload(request: Request, call_next):
+    """Refuse an oversized zip before the multipart body is parsed."""
+    if request.url.path == "/api/ingest/archive":
+        length = request.headers.get("content-length")
+        if length and length.isdigit() and int(length) > MAX_ARCHIVE_BYTES + 64 * 1024:
+            return JSONResponse({"detail": f"Zip files are limited to {MAX_ARCHIVE_BYTES // (1024 * 1024)} MB. Zip a sub-folder instead."}, status_code=413)
+    return await call_next(request)
 
 
 app.include_router(public_router)

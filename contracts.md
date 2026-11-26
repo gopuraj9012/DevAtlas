@@ -203,3 +203,13 @@ Auth required. Aggregated by `backend/coverage.py` from the documented migration
 - `items[]` = `{name,area,project_slug,project,status,status_label,weight,percent,contract,note,link}` ordered lowest weight first; `remaining[]` = the same rows filtered to anything not fully mapped, so gaps cannot be hidden inside an average.
 - `contract` links an asset to the data contract that owns its shape; `link` deep-links to the project or contracts page.
 - UI: `/coverage` page (nav entry "Migration coverage") — coverage ring for the headline %, per-area bars, a "still to migrate" list and a full asset table.
+
+## More import sources (maintainer only)
+All three reuse the exact analysis + persistence of `POST /api/ingest`; success is the ingest response plus `source`.
+- `POST /api/ingest/archive` multipart field `file` = a `.zip` (≤25 MB, ≤20,000 entries). Read in memory, never extracted; a single shared top folder (GitHub/Bitbucket "Download ZIP") is stripped; `..` paths, encrypted entries and non-candidate files are skipped. 400 not a zip / wrong extension · 413 too large · 422 no .NET projects. `source = {kind: "archive", name, files_read, files_skipped, truncated}`.
+- `POST /api/ingest/bitbucket` `{repo, ref?, path?}`. `repo` = `workspace/repo`, `https://bitbucket.org/workspace/repo`, or a `…/src/<ref>/<folder>` link. Shallow `git clone` over https. Private repos use `BITBUCKET_USERNAME` + `BITBUCKET_APP_PASSWORD`, or `BITBUCKET_TOKEN` (access token). Non-bitbucket.org hosts → 400 (use the Git URL source for Bitbucket Server).
+- `POST /api/ingest/git` `{url, ref?, path?}`. Any `https://` clone URL (GitLab, Azure DevOps, Bitbucket Server, self-hosted). ssh/git/file/http URLs and URLs with embedded credentials → 400; host outside `GIT_ALLOWED_HOSTS` (when set) → 403. Private repos use `GIT_HTTP_TOKEN` (Bearer) or `GIT_HTTP_USERNAME` + `GIT_HTTP_TOKEN` (Basic).
+- Clone rules (both git sources): depth 1, single branch, blobs >400 KB filtered, no credential prompts, symlinks not followed, 120 s timeout, temp folder always removed. `ref` must be a plain branch/tag name; `path` must be relative. A folder import still includes `Directory.Build.props` files above it.
+- Errors: 404 repository/branch/folder not found or private without credentials · 403 credentials rejected or host not allowed · 422 no .NET projects · 502 other clone failure · 504 clone timeout.
+- `source = {kind: "git" | "bitbucket", repo, host?, ref, path, url, files_read, files_skipped, truncated, authenticated}`. Credentials never appear in the response.
+- Framework detection now also reads `Directory.Build.props` (nearest first); an SDK-style project with no resolvable TFM is reported as `.NET (SDK-style)`, system `modern`.

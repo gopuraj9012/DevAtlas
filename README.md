@@ -44,10 +44,14 @@ Prerequisites: Docker Desktop, Python 3.11+, Node 20+.
    docker exec devatlas-mongo mongosh devatlas --quiet --eval "db.users.updateOne({email:'someone@company.com'},{`$set:{role:'maintainer'}})"
    ```
 
+## Importing a codebase
+
+Maintainers can open **Import codebase** and pick a folder, upload a `.zip`, or read from GitHub, Bitbucket Cloud or any https Git URL (GitLab, Azure DevOps, Bitbucket Server). Public repositories need nothing; for private ones set the matching token in `backend/.env` (see `.env.example`) and restart the API. The Git options need `git` installed on the machine running the API.
+
 ## Tests and checks
 
 ```powershell
-cd backend; .\.venv\Scripts\python -m pytest -q tests/test_api.py
+cd backend; .\.venv\Scripts\python -m pytest -q tests
 ```
 
 ```powershell

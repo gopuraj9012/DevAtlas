@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { FolderOpen, FolderUp, FolderGit2, Lock } from "lucide-react";
+import { Cloud, FileArchive, FolderGit2, FolderOpen, FolderUp, GitBranch, Lock, type LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { api, type IngestResult as Result } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -9,8 +9,18 @@ import { AppShell } from "@/components/shell/AppShell";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyPanel, ErrorBanner, PageHeader } from "@/components/kb/Bits";
-import { GithubIngest } from "@/components/kb/GithubIngest";
+import { RepoIngest, type RepoProvider } from "@/components/kb/RepoIngest";
 import { IngestResult } from "@/components/kb/IngestResult";
+
+type Source = "folder" | "zip" | RepoProvider;
+const SOURCES: [Source, string, LucideIcon][] = [
+  ["folder", "Folder", FolderUp],
+  ["zip", "Zip file", FileArchive],
+  ["github", "GitHub", FolderGit2],
+  ["bitbucket", "Bitbucket", Cloud],
+  ["git", "Git URL", GitBranch],
+];
+const MAX_ZIP = 25 * 1024 * 1024;
 
 const EXT = [".cs", ".csproj", ".sln", ".config", ".json", ".cshtml", ".aspx", ".ascx", ".asax", ".sql", ".md", ".xml", ".vb", ".vbproj", ".props", ".targets"];
 const SKIP = new Set(["bin", "obj", "node_modules", ".git", "packages", "dist", "build", ".vs"]);
@@ -36,9 +46,11 @@ export default function Ingest() {
   const { canEdit } = useAuth();
   const qc = useQueryClient();
   const input = useRef<HTMLInputElement>(null);
-  const [source, setSource] = useState<"folder" | "github">("folder");
+  const zipInput = useRef<HTMLInputElement>(null);
+  const [source, setSource] = useState<Source>("folder");
   const [reading, setReading] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
 
   const done = (r: Result) => {
     qc.invalidateQueries({ queryKey: ["projects"] });
@@ -46,8 +58,27 @@ export default function Ingest() {
     toast.success(`Imported ${r.projects.length} project${r.projects.length === 1 ? "" : "s"} and ${r.articles.length} docs`);
   };
   const upload = useMutation({ mutationFn: (files: { path: string; content: string }[]) => api<Result>("/ingest", { body: { files } }), onSuccess: done });
-  const github = useMutation({ mutationFn: (body: { repo: string; ref?: string; path?: string }) => api<Result>("/ingest/github", { body }), onSuccess: done });
-  const result = source === "folder" ? upload : github;
+  const archive = useMutation({
+    mutationFn: (file: File) => { const fd = new FormData(); fd.append("file", file); return api<Result>("/ingest/archive", { body: fd }); },
+    onSuccess: done,
+  });
+  const repo = useMutation({
+    mutationFn: ({ provider, body }: { provider: RepoProvider; body: { repo: string; ref?: string; path?: string } }) =>
+      provider === "git"
+        ? api<Result>("/ingest/git", { body: { url: body.repo, ref: body.ref, path: body.path } })
+        : api<Result>(`/ingest/${provider}`, { body }),
+    onSuccess: done,
+  });
+  const result = source === "folder" ? upload : source === "zip" ? archive : repo;
+
+  function onZip(file: File | undefined) {
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".zip")) { toast.error("Pick a .zip file"); return; }
+    if (file.size > MAX_ZIP) { toast.error("Zip files are limited to 25 MB. Zip a sub-folder instead."); return; }
+    setNote(`${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)`);
+    archive.mutate(file);
+    if (zipInput.current) zipInput.current.value = "";
+  }
 
   async function onPick(list: FileList | null) {
     if (!list?.length) return;
@@ -73,24 +104,39 @@ export default function Ingest() {
 
   return (
     <AppShell>
-      <PageHeader eyebrow="Import" title="Import an existing codebase" description="DevAtlas reads the .sln and .csproj files and greps the source for stack and risk signals, then generates draft docs marked IMPORTED. Nothing leaves your machine except the text files you pick." />
-      <div className="mb-6 flex rounded-lg border border-border bg-card p-1 sm:w-fit" role="group" aria-label="Source">
-        {([["folder", "Upload a folder", FolderUp], ["github", "Read from GitHub", FolderGit2]] as const).map(([k, label, Icon]) => (
-          <button key={k} type="button" aria-pressed={source === k} onClick={() => setSource(k)} className={cn("inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md px-3 text-[13px] font-medium", source === k ? "bg-accent text-primary" : "text-muted-foreground hover:text-foreground")}>
+      <PageHeader eyebrow="Import" title="Import an existing codebase" description="DevAtlas reads the .sln and .csproj files and greps the source for stack and risk signals, then generates draft docs marked IMPORTED. Upload a folder or a zip, or point it at a GitHub, Bitbucket or any Git repository." />
+      <div className="mb-6 grid grid-cols-2 gap-1 rounded-lg border border-border bg-card p-1 sm:flex sm:w-fit" role="group" aria-label="Source">
+        {SOURCES.map(([k, label, Icon]) => (
+          <button key={k} type="button" aria-pressed={source === k} onClick={() => { setSource(k); setNote(null); }} className={cn("inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 text-[13px] font-medium transition-colors", source === k ? "bg-accent text-primary" : "text-muted-foreground hover:text-foreground")}>
             <Icon className="h-4 w-4" aria-hidden />{label}
           </button>
         ))}
       </div>
       <Card className="p-6">
-        {source === "folder" ? (
+        {source === "folder" && (
           <div className="flex flex-col items-start gap-3">
             <p className="text-sm text-muted-foreground">Pick the folder that contains your solution. Only text source files are read; <code className="inline-code">bin</code>, <code className="inline-code">obj</code>, <code className="inline-code">packages</code> and <code className="inline-code">.git</code> are skipped.</p>
             <input ref={input} type="file" className="sr-only" id="folder-input" onChange={(e) => onPick(e.target.files)} {...({ webkitdirectory: "", directory: "" } as Record<string, string>)} multiple />
             <Button onClick={() => input.current?.click()} loading={reading || upload.isPending}><FolderOpen /> {reading ? "Reading files…" : upload.isPending ? "Analysing…" : "Choose a folder"}</Button>
             {note && <p className="text-[13px] text-muted-foreground">{note}</p>}
           </div>
-        ) : (
-          <GithubIngest busy={github.isPending} onSubmit={(b) => github.mutate(b)} />
+        )}
+        {source === "zip" && (
+          <div
+            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={(e) => { e.preventDefault(); setDragging(false); onZip(e.dataTransfer.files[0]); }}
+            className={cn("flex flex-col items-center gap-3 rounded-xl border-[1.5px] border-dashed px-6 py-10 text-center transition-colors", dragging ? "border-primary bg-accent/50" : "border-border")}
+          >
+            <FileArchive className="h-8 w-8 text-primary" aria-hidden />
+            <p className="max-w-md text-sm text-muted-foreground">Drop a <code className="inline-code">.zip</code> of the repository here, or choose one. A GitHub or Bitbucket “Download ZIP” works as is. Up to 25 MB; <code className="inline-code">bin</code> and <code className="inline-code">obj</code> are skipped.</p>
+            <input ref={zipInput} type="file" accept=".zip,application/zip" className="sr-only" id="zip-input" onChange={(e) => onZip(e.target.files?.[0])} />
+            <Button onClick={() => zipInput.current?.click()} loading={archive.isPending}><FileArchive /> {archive.isPending ? "Analysing…" : "Choose a .zip file"}</Button>
+            {note && <p className="text-[13px] text-muted-foreground">{note}</p>}
+          </div>
+        )}
+        {(source === "github" || source === "bitbucket" || source === "git") && (
+          <RepoIngest key={source} provider={source} busy={repo.isPending} onSubmit={(body) => repo.mutate({ provider: source, body })} />
         )}
       </Card>
       <div className="mt-8">
