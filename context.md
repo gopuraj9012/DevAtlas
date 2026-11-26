@@ -79,3 +79,12 @@ Limits: 6000 files / 400 KB per file / ~7.5 MB total; larger folders get a clear
 
 ## Developer documentation
 - `DEVELOPMENT.md` is the single guide for both sides: stack, repo layout, every backend module, the 51-endpoint API map, auth model, collections, frontend routes/components, design rules, feature recipes, env vars, debugging map, honest security gaps, and the not-yet-built roadmap. Keep it updated when routes, modules or features change.
+
+## Local rebuild (2026-11-26)
+Rebuilt from these specs as a standalone repo on a Windows laptop.
+- MongoDB 7 runs from `docker-compose.yml` (container `devatlas-mongo`, volume `devatlas_mongo_data`, bound to 127.0.0.1:27017).
+- Backend: `backend/server.py` + the modules listed in DEVELOPMENT.md, plus `md_blocks.py` (markdown subset <-> blocks, mirrored by `frontend/src/lib/markdown.ts`). 52 `/api` routes; 65 tests in `backend/tests/test_api.py`.
+- Frontend: Vite dev server on 5173 proxies `/api` to uvicorn on 8000 (replaces the platform's Express proxy locally). 22 routes, 21 screens.
+- Security gaps closed in this build: `JWT_SECRET`, `MONGO_URL`, `DB_NAME` and `CORS_ORIGINS` are required with no fallback; the demo maintainer is seeded only when `DEMO_EMAIL`/`DEMO_PASSWORD` are set; request models carry length limits; dependencies are pinned; `python-jose` is not used; CORS is an explicit origin list without credentials; `.env` is gitignored. Still open: self-signup is open, no rate limiting, 7-day tokens without revocation.
+- Design: built on white surfaces per the guidelines body (the "Mode: DARK" note in the theme block contradicts the rest of the file and was not applied). The landing page says email and password sign-in, not SSO, because SSO is not implemented.
+- Search covers the nine content collections; stored procedures are not searchable yet (they are static data reached through each legacy project's Stored procs tab).
