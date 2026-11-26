@@ -1,0 +1,18 @@
+# env
+.env
+*.env
+!.env.example
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+# node
+node_modules/
+dist/
+.vite/
+# editors
+.vs/
+.vscode/
+.idea/
