@@ -1,4 +1,4 @@
-﻿import { useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { FolderOpen, FolderUp, FolderGit2, Lock } from "lucide-react";
 import { toast } from "sonner";
@@ -86,7 +86,7 @@ export default function Ingest() {
           <div className="flex flex-col items-start gap-3">
             <p className="text-sm text-muted-foreground">Pick the folder that contains your solution. Only text source files are read; <code className="inline-code">bin</code>, <code className="inline-code">obj</code>, <code className="inline-code">packages</code> and <code className="inline-code">.git</code> are skipped.</p>
             <input ref={input} type="file" className="sr-only" id="folder-input" onChange={(e) => onPick(e.target.files)} {...({ webkitdirectory: "", directory: "" } as Record<string, string>)} multiple />
-            <Button onClick={() => input.current?.click()} loading={reading || upload.isPending}><FolderOpen /> {reading ? "Reading filesâ€¦" : upload.isPending ? "Analysingâ€¦" : "Choose a folder"}</Button>
+            <Button onClick={() => input.current?.click()} loading={reading || upload.isPending}><FolderOpen /> {reading ? "Reading files…" : upload.isPending ? "Analysing…" : "Choose a folder"}</Button>
             {note && <p className="text-[13px] text-muted-foreground">{note}</p>}
           </div>
         ) : (

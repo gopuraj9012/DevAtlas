@@ -1,4 +1,4 @@
-﻿import { Link } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api, type Coverage } from "@/lib/api";
 import { AppShell } from "@/components/shell/AppShell";
@@ -33,14 +33,14 @@ export default function CoveragePage() {
               <Ring value={d.overall.percent} />
               <div className="text-sm">
                 <div className="font-semibold">{d.overall.total} legacy assets</div>
-                <div className="mt-1 text-muted-foreground">{d.overall.mapped} rewritten Â· {d.overall.partial} partly Â· {d.overall.not_started} not started</div>
+                <div className="mt-1 text-muted-foreground">{d.overall.mapped} rewritten · {d.overall.partial} partly · {d.overall.not_started} not started</div>
                 <div className="mt-1 font-mono text-[11px] text-muted-foreground">weighted {d.overall.weighted} / {d.overall.total}</div>
               </div>
             </Card>
             <Card className="space-y-5 p-6">
               {d.by_area.map((a) => (
                 <div key={a.key}>
-                  <div className="mb-1.5 flex justify-between text-sm"><span className="font-medium">{a.label}</span><span className="text-muted-foreground">{a.mapped} rewritten Â· {a.partial} partly Â· {a.not_started} not started</span></div>
+                  <div className="mb-1.5 flex justify-between text-sm"><span className="font-medium">{a.label}</span><span className="text-muted-foreground">{a.mapped} rewritten · {a.partial} partly · {a.not_started} not started</span></div>
                   <ProgressMeter value={a.percent} />
                 </div>
               ))}
@@ -54,9 +54,9 @@ export default function CoveragePage() {
               {d.remaining.map((i) => (
                 <Card key={`${i.area}-${i.name}`} className="p-4">
                   <div className="flex items-center gap-2"><span className="min-w-0 flex-1 break-all font-mono text-[13px] font-semibold">{i.name}</span><Pill tone={STATUS_TONE[i.status]}>{i.status_label}</Pill></div>
-                  <div className="mt-1 text-[12px] text-muted-foreground">{i.area === "procedures" ? "Stored procedure" : "Legacy interface"} Â· {i.project}</div>
+                  <div className="mt-1 text-[12px] text-muted-foreground">{i.area === "procedures" ? "Stored procedure" : "Legacy interface"} · {i.project}</div>
                   <p className="mt-2 text-[13px]">{i.note}</p>
-                  <Link to={i.link} className="mt-2 inline-block text-[12px] font-medium text-primary hover:underline">Open â†’</Link>
+                  <Link to={i.link} className="mt-2 inline-block text-[12px] font-medium text-primary hover:underline">Open →</Link>
                 </Card>
               ))}
             </div>

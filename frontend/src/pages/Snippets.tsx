@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Eye, EyeOff, FileX, Search, XCircle } from "lucide-react";
@@ -73,13 +73,13 @@ export default function Snippets() {
               </div>
               <div className="mt-4 grid gap-4 lg:grid-cols-2 [&>*]:min-w-0">
                 <div>
-                  <CodeBlock code={s.bad.code} lang={s.bad.lang} header={<span className="flex items-center gap-1.5 text-destructive"><XCircle className="h-3.5 w-3.5" /> Breaks {s.rule} Â· {s.bad.filename}</span>} />
+                  <CodeBlock code={s.bad.code} lang={s.bad.lang} header={<span className="flex items-center gap-1.5 text-destructive"><XCircle className="h-3.5 w-3.5" /> Breaks {s.rule} · {s.bad.filename}</span>} />
                   <ul className="mt-3 list-disc space-y-1 pl-5 text-[13px] text-muted-foreground">{s.why_bad.map((w) => <li key={w}>{w}</li>)}</ul>
                 </div>
                 <div>
                   {open ? (
                     <>
-                      <CodeBlock code={s.standard.code} lang={s.standard.lang} header={<span className="flex items-center gap-1.5 text-primary"><span className="h-2 w-2 rounded-full bg-primary" /> Our standard Â· {s.standard.filename}</span>} />
+                      <CodeBlock code={s.standard.code} lang={s.standard.lang} header={<span className="flex items-center gap-1.5 text-primary"><span className="h-2 w-2 rounded-full bg-primary" /> Our standard · {s.standard.filename}</span>} />
                       <p className="mt-3 text-[13px]"><span className="font-medium">Instead:</span> {s.instead}</p>
                     </>
                   ) : (

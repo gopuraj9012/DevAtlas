@@ -1,4 +1,4 @@
-﻿import { useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import * as Collapsible from "@radix-ui/react-collapsible";
@@ -74,7 +74,7 @@ function SystemGroup({ system, projects, collapsed, canEdit }: { system: System;
     return (
       <div className="flex flex-col items-center gap-1 py-1">
         {projects.map((p) => (
-          <Tip key={p.slug} label={`${p.name} Â· ${label}`}>
+          <Tip key={p.slug} label={`${p.name} · ${label}`}>
             <NavLink to={`/projects/${p.slug}`} aria-label={`${p.name}, ${label}`} className={({ isActive }) => cn("flex h-8 w-8 items-center justify-center rounded-md hover:bg-secondary", isActive && "bg-accent")}>
               <span aria-hidden className={cn("h-2 w-2 rounded-full", dot)} />
             </NavLink>
@@ -201,7 +201,7 @@ export function AppShell({ children, toc, wide }: { children: ReactNode; toc?: R
               aria-label="Search projects, docs, standards"
             >
               <Search className="h-4 w-4 shrink-0" aria-hidden />
-              <span className="flex-1 truncate">Search projects, docs, standardsâ€¦</span>
+              <span className="flex-1 truncate">Search projects, docs, standards…</span>
               <kbd className="hidden h-5 items-center rounded-md border border-border bg-card px-1.5 font-mono text-[11px] text-muted-foreground sm:inline-flex">Ctrl K</kbd>
             </button>
             <MobileNav />
@@ -217,7 +217,7 @@ export function AppShell({ children, toc, wide }: { children: ReactNode; toc?: R
       <footer className="sticky bottom-0 z-30 flex h-7 items-center gap-2 overflow-hidden whitespace-nowrap bg-foreground px-4 font-mono text-[11px] text-background/70">
         <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden />
         <span>
-          DEVATLAS v2.4 Â· 2 systems Â· {overview.data?.counts.projects ?? list.length} projects Â· {overview.data?.counts.articles ?? "â€¦"} docs Â·{" "}
+          DEVATLAS v2.4 · 2 systems · {overview.data?.counts.projects ?? list.length} projects · {overview.data?.counts.articles ?? "…"} docs ·{" "}
           {projects.isError ? "api unreachable" : "api connected"}
         </span>
       </footer>
