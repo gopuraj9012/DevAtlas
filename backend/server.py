@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -54,7 +55,6 @@ JWT_SECRET = os.environ["JWT_SECRET"]
 CORS_ORIGINS = [o.strip() for o in os.environ["CORS_ORIGINS"].split(",") if o.strip()]
 
 JWT_ALG = "HS256"
-TOKEN_TTL = timedelta(days=7)
 EDITOR_ROLES = {"maintainer", "owner"}
 VERSION = "2.4"
 
@@ -137,13 +137,26 @@ async def seed_all(db) -> None:
     await seed_if_empty(db, "deployments", FLOWS)
     await seed_if_empty(db, "datacontracts", [{**c, "owner_system": owner_system(c)} for c in CONTRACTS])
 
-    # Optional local demo maintainer: only when both env vars are set.
-    demo_email, demo_password = os.environ.get("DEMO_EMAIL"), os.environ.get("DEMO_PASSWORD")
-    if demo_email and demo_password and not await db.users.find_one({"email": demo_email.lower()}):
-        await db.users.insert_one({
-            "email": demo_email.lower(), "name": "Greta Lindqvist", "role": "maintainer",
-            "password_hash": hash_password(demo_password), "created_at": now(), "origin": "SEED",
-        })
+    # Optional local demo accounts: each is seeded only when both of its env vars are set.
+    demos = [
+        ("DEMO_EMAIL", "DEMO_PASSWORD", "Greta Lindqvist", "maintainer"),
+        ("DEMO_ENGINEER_EMAIL", "DEMO_ENGINEER_PASSWORD", "Priya Shah", "engineer"),
+    ]
+    for email_var, password_var, name, role in demos:
+        email, password = os.environ.get(email_var), os.environ.get(password_var)
+        if email and password and not await db.users.find_one({"email": email.lower()}):
+            await db.users.insert_one({
+                "email": email.lower(), "name": name, "role": role, "active": True, "session_version": 0,
+                "password_hash": hash_password(password), "created_at": now(), "origin": "SEED",
+            })
+
+    # First owner: when no active owner exists, promote the accounts listed in BOOTSTRAP_OWNERS.
+    owners = [e.strip().lower() for e in os.environ.get("BOOTSTRAP_OWNERS", "").split(",") if e.strip()]
+    if owners and not await db.users.find_one({"role": "owner", "active": {"$ne": False}}):
+        res = await db.users.update_many({"email": {"$in": owners}}, {"$set": {"role": "owner", "active": True}, "$inc": {"session_version": 1}})
+        if res.modified_count:
+            await db.audit.insert_one({"at": now(), "action": "user.bootstrap_owner", "target": ", ".join(owners), "detail": {"promoted": res.modified_count},
+                                       "actor_id": None, "actor_name": "system", "actor_email": None})
 
 
 async def ensure_indexes(db) -> None:
@@ -154,6 +167,8 @@ async def ensure_indexes(db) -> None:
     await db.validation.create_index("rule_id", unique=True)
     await db.progress.create_index("user_id", unique=True)
     await db.checklist_progress.create_index([("user_id", 1), ("project_slug", 1)], unique=True)
+    await db.invites.create_index("code", unique=True)
+    await db.audit.create_index([("at", -1)])
 
 
 @asynccontextmanager
@@ -194,8 +209,11 @@ def verify_password(pw: str, hashed: str) -> bool:
         return False
 
 
-def make_token(user_id: str) -> str:
-    return jwt.encode({"sub": user_id, "iat": now(), "exp": now() + TOKEN_TTL}, JWT_SECRET, algorithm=JWT_ALG)
+def make_token(user: dict, days: int) -> str:
+    return jwt.encode(
+        {"sub": str(user["_id"]), "sv": user.get("session_version", 0), "iat": now(), "exp": now() + timedelta(days=days)},
+        JWT_SECRET, algorithm=JWT_ALG,
+    )
 
 
 def public_user(u: dict) -> dict:
@@ -212,6 +230,11 @@ async def current_user(creds: HTTPAuthorizationCredentials | None = Depends(bear
         raise HTTPException(401, "Your session is invalid or has expired. Sign in again.")
     if not user:
         raise HTTPException(401, "Your account no longer exists.")
+    if not user.get("active", True):
+        raise HTTPException(401, "Your account has been deactivated. Ask an owner to reactivate it.")
+    # Role changes and deactivation bump session_version, which signs out existing tokens.
+    if payload.get("sv", 0) != user.get("session_version", 0):
+        raise HTTPException(401, "Your access changed. Sign in again.")
     return public_user(user)
 
 
@@ -219,6 +242,47 @@ async def require_maintainer(user: dict = Depends(current_user)) -> dict:
     if user["role"] not in EDITOR_ROLES:
         raise HTTPException(403, "Only maintainers can change shared content. Suggest the change on the Feedback page instead.")
     return user
+
+
+async def require_owner(user: dict = Depends(current_user)) -> dict:
+    if user["role"] != "owner":
+        raise HTTPException(403, "Only owners can manage users and settings.")
+    return user
+
+
+# ---------------------------------------------------------------- settings + audit
+
+ROLES = ["engineer", "maintainer", "owner"]
+SIGNUP_MODES = ["open", "domain", "invite"]
+IMPORT_SOURCES = ["folder", "archive", "github", "bitbucket", "git"]
+SETTINGS_DEFAULTS: dict[str, Any] = {
+    "signup_mode": "open",          # open | domain (allowed_domains or an invite) | invite (invite code required)
+    "allowed_domains": [],
+    "session_days": 7,
+    "import_sources": list(IMPORT_SOURCES),
+    "updated_at": None,
+    "updated_by": None,
+}
+
+
+async def get_settings() -> dict:
+    doc = await get_db().settings.find_one({"_id": "app"}) or {}
+    out = {**SETTINGS_DEFAULTS, **{k: v for k, v in doc.items() if k != "_id"}}
+    out["updated_at"] = iso(out["updated_at"]) if isinstance(out["updated_at"], datetime) else out["updated_at"]
+    return out
+
+
+async def audit(actor: dict | None, action: str, target: str = "", detail: dict | None = None) -> None:
+    await get_db().audit.insert_one({
+        "at": now(), "action": action, "target": target, "detail": detail or {},
+        "actor_id": actor["id"] if actor else None, "actor_name": actor["name"] if actor else "system",
+        "actor_email": actor["email"] if actor else None,
+    })
+
+
+async def require_source(source: str) -> None:
+    if source not in (await get_settings())["import_sources"]:
+        raise HTTPException(403, "An owner has turned off this import source in Admin settings.")
 
 
 public_router = APIRouter(prefix="/api")
@@ -229,6 +293,7 @@ class SignupIn(BaseModel):
     email: str = Field(min_length=3, max_length=254)
     password: str = Field(min_length=8, max_length=128)
     name: str | None = Field(default=None, max_length=80)
+    invite_code: str | None = Field(default=None, max_length=64)
 
 
 class LoginIn(BaseModel):
@@ -249,27 +314,225 @@ async def health():
     return {"status": "ok", "service": "devatlas", "version": VERSION, "database": "up" if db_ok else "down"}
 
 
+@public_router.get("/auth/config")
+async def auth_config():
+    """What the sign-in page and import screen need to know. Contains no secrets."""
+    s = await get_settings()
+    return {"signup_mode": s["signup_mode"], "allowed_domains": s["allowed_domains"], "import_sources": s["import_sources"]}
+
+
+async def _valid_invite(code: str, email: str) -> dict:
+    inv = await get_db().invites.find_one({"code": code.strip()})
+    if not inv or inv.get("used_at") or inv.get("revoked_at"):
+        raise HTTPException(403, "That invite code is not valid. Ask an owner for a new one.")
+    expires = inv.get("expires_at")
+    if expires and (expires if expires.tzinfo else expires.replace(tzinfo=timezone.utc)) < now():
+        raise HTTPException(403, "That invite code has expired. Ask an owner for a new one.")
+    if inv.get("email") and inv["email"] != email:
+        raise HTTPException(403, "That invite was issued for a different email address.")
+    return inv
+
+
 @public_router.post("/auth/signup")
 async def signup(body: SignupIn):
     email = body.email.strip().lower()
     if not EMAIL_RX.match(email):
         raise HTTPException(400, "Enter a valid email address.")
     db = get_db()
+    settings = await get_settings()
+    invite = await _valid_invite(body.invite_code, email) if body.invite_code else None
+    if not invite:
+        if settings["signup_mode"] == "invite":
+            raise HTTPException(403, "Sign-up is by invitation only. Enter the invite code an owner gave you.")
+        if settings["signup_mode"] == "domain" and email.rsplit("@", 1)[-1] not in settings["allowed_domains"]:
+            raise HTTPException(403, "Sign-up is limited to company email addresses. Use your work email or an invite code.")
     if await db.users.find_one({"email": email}):
         raise HTTPException(409, "An account with that email already exists. Sign in instead.")
-    doc = {"email": email, "name": (body.name or "").strip() or email.split("@")[0], "role": "engineer",
-           "password_hash": hash_password(body.password), "created_at": now(), "origin": "TEAM"}
+    role = invite["role"] if invite else "engineer"  # roles are never accepted from the client
+    doc = {"email": email, "name": (body.name or "").strip() or email.split("@")[0], "role": role, "active": True,
+           "session_version": 0, "password_hash": hash_password(body.password), "created_at": now(),
+           "last_login_at": now(), "origin": "TEAM"}
     res = await db.users.insert_one(doc)
     doc["_id"] = res.inserted_id
-    return {"token": make_token(str(res.inserted_id)), "user": public_user(doc)}
+    if invite:
+        await db.invites.update_one({"_id": invite["_id"]}, {"$set": {"used_at": now(), "used_by": email}})
+        await audit(public_user(doc), "invite.accept", email, {"role": role, "code": invite["code"][:4] + "…"})
+    return {"token": make_token(doc, settings["session_days"]), "user": public_user(doc)}
 
 
 @public_router.post("/auth/login")
 async def login(body: LoginIn):
-    user = await get_db().users.find_one({"email": body.email.strip().lower()})
+    db = get_db()
+    user = await db.users.find_one({"email": body.email.strip().lower()})
     if not user or not verify_password(body.password, user.get("password_hash", "")):
         raise HTTPException(401, "Email or password is incorrect.")
-    return {"token": make_token(str(user["_id"])), "user": public_user(user)}
+    if not user.get("active", True):
+        raise HTTPException(403, "Your account has been deactivated. Ask an owner to reactivate it.")
+    await db.users.update_one({"_id": user["_id"]}, {"$set": {"last_login_at": now()}})
+    return {"token": make_token(user, (await get_settings())["session_days"]), "user": public_user(user)}
+
+
+# ---------------------------------------------------------------- admin (owner only)
+
+admin_router = APIRouter(prefix="/api/admin", dependencies=[Depends(require_owner)])
+
+
+def _admin_user(u: dict) -> dict:
+    return {
+        **public_user(u), "active": u.get("active", True), "origin": u.get("origin", "TEAM"),
+        "created_at": iso(u.get("created_at")), "last_login_at": iso(u.get("last_login_at")),
+    }
+
+
+class UserUpdateIn(BaseModel):
+    role: Literal["engineer", "maintainer", "owner"] | None = None
+    active: bool | None = None
+
+
+class SettingsIn(BaseModel):
+    signup_mode: Literal["open", "domain", "invite"] | None = None
+    allowed_domains: list[str] | None = Field(default=None, max_length=50)
+    session_days: int | None = Field(default=None, ge=1, le=90)
+    import_sources: list[Literal["folder", "archive", "github", "bitbucket", "git"]] | None = None
+
+
+class InviteIn(BaseModel):
+    email: str | None = Field(default=None, max_length=254)
+    role: Literal["engineer", "maintainer", "owner"] = "engineer"
+    days: int = Field(default=7, ge=1, le=30)
+
+
+DOMAIN_RX = re.compile(r"^(?=.{3,253}$)([a-z0-9-]+\.)+[a-z]{2,}$")
+
+
+@admin_router.get("/users")
+async def admin_users(q: str | None = None):
+    flt = _text_filter(q, ["email", "name", "role"]) if q else {}
+    docs = await get_db().users.find(flt).sort([("role", -1), ("name", 1)]).to_list(5000)
+    return [_admin_user(d) for d in docs]
+
+
+@admin_router.put("/users/{uid}")
+async def admin_update_user(uid: str, body: UserUpdateIn, actor: dict = Depends(require_owner)):
+    db = get_db()
+    try:
+        target = await db.users.find_one({"_id": ObjectId(uid)})
+    except (InvalidId, TypeError):
+        target = None
+    if not target:
+        raise HTTPException(404, "That user does not exist.")
+    if str(target["_id"]) == actor["id"]:
+        raise HTTPException(400, "You can't change your own role or deactivate yourself. Ask another owner.")
+    changes: dict = {}
+    if body.role is not None and body.role != target.get("role"):
+        changes["role"] = body.role
+    if body.active is not None and body.active != target.get("active", True):
+        changes["active"] = body.active
+    if not changes:
+        return _admin_user(target)
+    losing_owner = target.get("role") == "owner" and target.get("active", True) and (changes.get("role", "owner") != "owner" or changes.get("active") is False)
+    if losing_owner and await db.users.count_documents({"role": "owner", "active": {"$ne": False}, "_id": {"$ne": target["_id"]}}) == 0:
+        raise HTTPException(400, "DevAtlas needs at least one active owner. Make someone else an owner first.")
+    await db.users.update_one({"_id": target["_id"]}, {"$set": changes, "$inc": {"session_version": 1}})
+    if "role" in changes:
+        await audit(actor, "user.role", target["email"], {"from": target.get("role", "engineer"), "to": changes["role"]})
+    if "active" in changes:
+        await audit(actor, "user.activate" if changes["active"] else "user.deactivate", target["email"])
+    return _admin_user(await db.users.find_one({"_id": target["_id"]}))
+
+
+@admin_router.get("/settings")
+async def admin_get_settings():
+    return await get_settings()
+
+
+@admin_router.put("/settings")
+async def admin_put_settings(body: SettingsIn, actor: dict = Depends(require_owner)):
+    before = await get_settings()
+    changes = {k: v for k, v in body.model_dump().items() if v is not None}
+    if "allowed_domains" in changes:
+        domains = sorted({d.strip().lower().lstrip("@") for d in changes["allowed_domains"] if d.strip()})
+        bad = [d for d in domains if not DOMAIN_RX.match(d)]
+        if bad:
+            raise HTTPException(400, f"Not a valid domain: {', '.join(bad)}")
+        changes["allowed_domains"] = domains
+    if "import_sources" in changes:
+        changes["import_sources"] = [s for s in IMPORT_SOURCES if s in changes["import_sources"]]
+    mode = changes.get("signup_mode", before["signup_mode"])
+    if mode == "domain" and not changes.get("allowed_domains", before["allowed_domains"]):
+        raise HTTPException(400, "Add at least one allowed domain before limiting sign-up by domain.")
+    if not changes:
+        return before
+    diff = {k: {"from": before.get(k), "to": v} for k, v in changes.items() if before.get(k) != v}
+    await get_db().settings.update_one({"_id": "app"}, {"$set": {**changes, "updated_at": now(), "updated_by": actor["name"]}}, upsert=True)
+    if diff:
+        await audit(actor, "settings.update", "app", diff)
+    return await get_settings()
+
+
+def _invite_out(inv: dict) -> dict:
+    out = format_doc(inv)
+    status = "used" if inv.get("used_at") else "revoked" if inv.get("revoked_at") else "pending"
+    exp = inv.get("expires_at")
+    if status == "pending" and exp and (exp if exp.tzinfo else exp.replace(tzinfo=timezone.utc)) < now():
+        status = "expired"
+    out["status"] = status
+    return out
+
+
+@admin_router.get("/invites")
+async def admin_invites():
+    docs = await get_db().invites.find().sort("created_at", -1).to_list(1000)
+    return [_invite_out(d) for d in docs]
+
+
+@admin_router.post("/invites")
+async def admin_create_invite(body: InviteIn, actor: dict = Depends(require_owner)):
+    email = (body.email or "").strip().lower() or None
+    if email and not EMAIL_RX.match(email):
+        raise HTTPException(400, "Enter a valid email address, or leave it blank for an open invite.")
+    if email and await get_db().users.find_one({"email": email}):
+        raise HTTPException(409, "That person already has an account. Change their role on the Users tab instead.")
+    doc = {"code": secrets.token_urlsafe(12), "email": email, "role": body.role, "created_at": now(),
+           "expires_at": now() + timedelta(days=body.days), "created_by": actor["name"], "used_at": None, "revoked_at": None}
+    res = await get_db().invites.insert_one(doc)
+    doc["_id"] = res.inserted_id
+    await audit(actor, "invite.create", email or "(any email)", {"role": body.role, "days": body.days})
+    return _invite_out(doc)
+
+
+@admin_router.delete("/invites/{iid}")
+async def admin_revoke_invite(iid: str, actor: dict = Depends(require_owner)):
+    try:
+        inv = await get_db().invites.find_one({"_id": ObjectId(iid)})
+    except (InvalidId, TypeError):
+        inv = None
+    if not inv:
+        raise HTTPException(404, "That invite does not exist.")
+    if inv.get("used_at"):
+        raise HTTPException(400, "That invite was already used.")
+    await get_db().invites.update_one({"_id": inv["_id"]}, {"$set": {"revoked_at": now()}})
+    await audit(actor, "invite.revoke", inv.get("email") or "(any email)", {"role": inv["role"]})
+    return _invite_out(await get_db().invites.find_one({"_id": inv["_id"]}))
+
+
+@admin_router.get("/audit")
+async def admin_audit(limit: int = Query(200, ge=1, le=1000), action: str | None = None):
+    flt = {"action": {"$regex": f"^{re.escape(action)}"}} if action else {}
+    docs = await get_db().audit.find(flt).sort("at", -1).to_list(limit)
+    return [format_doc(d) for d in docs]
+
+
+@admin_router.get("/summary")
+async def admin_summary():
+    db = get_db()
+    users = await db.users.find({}, {"role": 1, "active": 1}).to_list(10000)
+    return {
+        "users": len(users),
+        "active": sum(1 for u in users if u.get("active", True)),
+        "by_role": {r: sum(1 for u in users if u.get("role", "engineer") == r and u.get("active", True)) for r in ROLES},
+        "pending_invites": await db.invites.count_documents({"used_at": None, "revoked_at": None, "expires_at": {"$gt": now()}}),
+    }
 
 
 @api_router.get("/auth/me")
@@ -914,11 +1177,22 @@ async def ingest_repository(files: list[dict], user: dict) -> dict:
 
 @api_router.post("/ingest")
 async def ingest(body: IngestIn, user: dict = Depends(require_maintainer)):
-    return await ingest_repository([f.model_dump() for f in body.files], user)
+    await require_source("folder")
+    result = await ingest_repository([f.model_dump() for f in body.files], user)
+    await _audit_import(user, {"kind": "folder"}, result)
+    return result
+
+
+async def _audit_import(user: dict, source: dict, result: dict) -> None:
+    await audit(user, f"import.{source.get('kind', 'folder')}", source.get("repo") or source.get("name") or "folder upload", {
+        "projects": [p["name"] for p in result["projects"]][:20], "docs": len(result["articles"]), "files": result["stats"]["source_files"],
+        **({"ref": source["ref"]} if source.get("ref") else {}),
+    })
 
 
 @api_router.post("/ingest/github")
 async def ingest_github(body: GithubIngestIn, user: dict = Depends(require_maintainer)):
+    await require_source("github")
     try:
         files, source = await fetch_repo_files(body.repo, body.ref, body.path)
     except GithubError as e:
@@ -938,6 +1212,7 @@ async def _ingest_from_source(files: list[dict], source: dict, user: dict) -> di
             raise HTTPException(422, "No .NET projects (.csproj) were found at that location.")
         raise
     result["source"] = source
+    await _audit_import(user, source, result)
     return result
 
 
@@ -949,6 +1224,7 @@ class GitIngestIn(BaseModel):
 
 @api_router.post("/ingest/git")
 async def ingest_git(body: GitIngestIn, user: dict = Depends(require_maintainer)):
+    await require_source("git")
     try:
         files, source = await fetch_git_files(body.url, body.ref, body.path)
     except SourceError as e:
@@ -958,6 +1234,7 @@ async def ingest_git(body: GitIngestIn, user: dict = Depends(require_maintainer)
 
 @api_router.post("/ingest/bitbucket")
 async def ingest_bitbucket(body: GithubIngestIn, user: dict = Depends(require_maintainer)):
+    await require_source("bitbucket")
     try:
         files, source = await fetch_bitbucket_files(body.repo, body.ref, body.path)
     except SourceError as e:
@@ -967,6 +1244,7 @@ async def ingest_bitbucket(body: GithubIngestIn, user: dict = Depends(require_ma
 
 @api_router.post("/ingest/archive")
 async def ingest_archive(file: UploadFile = File(...), user: dict = Depends(require_maintainer)):
+    await require_source("archive")
     name = (file.filename or "upload.zip").rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
     if not name.lower().endswith(".zip"):
         raise HTTPException(400, "Upload a .zip archive of the codebase.")
@@ -1127,6 +1405,7 @@ async def cap_archive_upload(request: Request, call_next):
 
 app.include_router(public_router)
 app.include_router(api_router)
+app.include_router(admin_router)
 
 
 @app.exception_handler(HTTPException)

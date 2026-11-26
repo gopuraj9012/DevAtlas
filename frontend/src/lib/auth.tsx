@@ -6,8 +6,9 @@ interface AuthState {
   user: User | null;
   loading: boolean;
   canEdit: boolean;
+  isOwner: boolean;
   login: (email: string, password: string) => Promise<void>;
-  signup: (email: string, password: string, name: string) => Promise<void>;
+  signup: (email: string, password: string, name: string, inviteCode?: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -49,8 +50,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       loading,
       canEdit: user?.role === "maintainer" || user?.role === "owner",
+      isOwner: user?.role === "owner",
       login: async (email, password) => accept(await api<AuthResponse>("/auth/login", { body: { email, password } })),
-      signup: async (email, password, name) => accept(await api<AuthResponse>("/auth/signup", { body: { email, password, name } })),
+      signup: async (email, password, name, inviteCode) =>
+        accept(await api<AuthResponse>("/auth/signup", { body: { email, password, name, invite_code: inviteCode || undefined } })),
       logout,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps

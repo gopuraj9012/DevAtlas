@@ -266,6 +266,21 @@ export interface ServiceGraph {
   note: string;
 }
 
+export type SignupMode = "open" | "domain" | "invite";
+export type ImportSource = "folder" | "archive" | "github" | "bitbucket" | "git";
+export interface AuthConfig { signup_mode: SignupMode; allowed_domains: string[]; import_sources: ImportSource[] }
+export interface AppSettings extends AuthConfig { session_days: number; updated_at: string | null; updated_by: string | null }
+export interface AdminUser extends User { active: boolean; origin: Origin; created_at: string | null; last_login_at: string | null }
+export interface Invite {
+  id: string; code: string; email: string | null; role: Role; created_at: string; expires_at: string; created_by: string;
+  used_at: string | null; used_by?: string; revoked_at: string | null; status: "pending" | "used" | "revoked" | "expired";
+}
+export interface AuditEntry {
+  id: string; at: string; action: string; target: string; detail: Record<string, unknown>;
+  actor_id: string | null; actor_name: string; actor_email: string | null;
+}
+export interface AdminSummary { users: number; active: number; by_role: Record<Role, number>; pending_invites: number }
+
 export interface IngestFinding { key: string; label: string; count: number; examples: string[]; risk: boolean }
 export interface IngestResult {
   stats: { files: number; source_files: number; lines: number; projects: number; solutions: string[]; by_extension: Record<string, number> };

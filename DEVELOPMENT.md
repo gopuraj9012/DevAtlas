@@ -161,6 +161,7 @@ Roughly ten groups:
 **Feedback** — `GET /feedback`, `GET /feedback/meta`, `GET /feedback/targets`, `POST /feedback`, `POST /feedback/{id}/vote`, `POST /feedback/{id}/status` (Maint.)
 **Insight** — `GET /coverage/migration`, `GET /architecture/service-graph`
 **Progress** — `GET /path`, `GET /progress`, `POST /progress/step`, `POST /progress/article`
+**Admin** (owner only) — `GET /admin/users`, `PUT /admin/users/{id}`, `GET/PUT /admin/settings`, `GET/POST /admin/invites`, `DELETE /admin/invites/{id}`, `GET /admin/audit`, `GET /admin/summary`; public `GET /auth/config`
 
 51 endpoints total, 3 of them public. Exact request/response shapes belong in `contracts.md` — read it before changing any of them.
 
@@ -355,12 +356,12 @@ Implemented and verified:
 
 Known gaps — deliberately documented, not silently ignored:
 
-1. **Self-signup is open** to anyone who can reach the API.
+1. ~~Self-signup is open~~ Now an owner setting: open, company domains, or invite only (Admin → Settings).
 2. **A seeded demo maintainer** exists with a published password, prefilled on the login screen.
 3. **`JWT_SECRET` has a development fallback** in source.
 4. **No rate limiting** on `/auth/*` or `/ingest`.
 5. **No request body size cap** — ingestion limits are enforced inside the analyser, not before parsing.
-6. **Tokens live 7 days** with no revocation list.
+6. ~~Tokens live 7 days with no revocation~~ Session length is an owner setting; role changes and deactivation revoke a user's tokens via `session_version`.
 7. **CORS defaults to `*`** when `CORS_ORIGINS` is unset, with credentials allowed.
 8. **Dependencies are mostly unpinned** and `python-jose` is declared but unused.
 

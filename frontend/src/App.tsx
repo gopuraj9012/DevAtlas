@@ -22,6 +22,7 @@ import DataContracts from "@/pages/DataContracts";
 import Snippets from "@/pages/Snippets";
 import Architecture from "@/pages/Architecture";
 import NotFound from "@/pages/NotFound";
+import Admin from "@/pages/Admin";
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -58,6 +59,7 @@ const PROTECTED: [string, ReactNode][] = [
   ["/contracts", <DataContracts />],
   ["/snippets", <Snippets />],
   ["/architecture", <Architecture />],
+  ["/admin", <Admin />],
 ];
 
 export default function App() {

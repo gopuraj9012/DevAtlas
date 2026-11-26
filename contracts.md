@@ -213,3 +213,17 @@ All three reuse the exact analysis + persistence of `POST /api/ingest`; success 
 - Errors: 404 repository/branch/folder not found or private without credentials · 403 credentials rejected or host not allowed · 422 no .NET projects · 502 other clone failure · 504 clone timeout.
 - `source = {kind: "git" | "bitbucket", repo, host?, ref, path, url, files_read, files_skipped, truncated, authenticated}`. Credentials never appear in the response.
 - Framework detection now also reads `Directory.Build.props` (nearest first); an SDK-style project with no resolvable TFM is reported as `.NET (SDK-style)`, system `modern`.
+
+## Admin (owner only) and sign-up policy
+Router `admin_router` (`/api/admin`, `Depends(require_owner)`): 401 without a token, 403 for engineer/maintainer.
+- `GET /api/auth/config` (public) → `{signup_mode, allowed_domains[], import_sources[]}`. No secrets.
+- `POST /api/auth/signup` accepts optional `invite_code`. `signup_mode`: `open` (anyone, role engineer) · `domain` (email domain in `allowed_domains`, or a valid invite) · `invite` (valid invite required). Invite rules: single use, not revoked or expired, and when the invite has an email it must match. The new account takes the invite's role; otherwise `engineer`. Policy failures → 403.
+- `POST /api/auth/login` → 403 for a deactivated account; records `last_login_at`. Tokens carry `sv` (session version); `current_user` → 401 when the account is deactivated or `sv` no longer matches. Token lifetime = `session_days` from settings.
+- `GET /admin/users?q=` → `AdminUser[]` = `user + {active, origin, created_at, last_login_at}` (never the password hash).
+- `PUT /admin/users/{id}` `{role?, active?}` → `AdminUser`. Bumps the target's `session_version` (signs them out). 400 on yourself · 400 if it would leave no active owner · 404 unknown id. Audited as `user.role` `{from,to}` / `user.activate` / `user.deactivate`.
+- `GET /admin/settings` → `{signup_mode, allowed_domains[], session_days (1-90), import_sources[], updated_at, updated_by}`; `PUT /admin/settings` with any subset. Domains are lower-cased and validated; `domain` mode needs at least one domain (400). Audited as `settings.update` with a `{field: {from,to}}` diff. Disabled `import_sources` make the matching `/api/ingest*` route return 403.
+- `GET /admin/invites` → `Invite[]` = `{id, code, email|null, role, created_at, expires_at, created_by, used_at, used_by?, revoked_at, status: pending|used|revoked|expired}`. `POST /admin/invites` `{email?, role, days (1-30)}` → 409 if the email already has an account. `DELETE /admin/invites/{id}` revokes (400 if used). Audited `invite.create` / `invite.revoke`; sign-up with an invite logs `invite.accept`.
+- `GET /admin/audit?action=<prefix>&limit=` → newest first, `{id, at, action, target, detail, actor_id, actor_name, actor_email}`. Imports are logged as `import.<folder|archive|github|bitbucket|git>` with project names and counts.
+- `GET /admin/summary` → `{users, active, by_role{engineer,maintainer,owner}, pending_invites}`.
+- Bootstrap: emails in `BOOTSTRAP_OWNERS` are promoted to owner at startup only while no active owner exists (`user.bootstrap_owner`).
+Collections: `settings` (single doc `_id: "app"`), `invites`, `audit`; `users` gains `active`, `session_version`, `last_login_at`.

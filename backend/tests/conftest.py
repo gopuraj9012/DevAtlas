@@ -14,8 +14,8 @@ BACKEND = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND))
 load_dotenv(BACKEND / ".env")
 os.environ["DB_NAME"] = f"{os.environ['DB_NAME']}_test"
-os.environ.pop("DEMO_EMAIL", None)
-os.environ.pop("DEMO_PASSWORD", None)
+for _var in ("DEMO_EMAIL", "DEMO_PASSWORD", "DEMO_ENGINEER_EMAIL", "DEMO_ENGINEER_PASSWORD"):
+    os.environ.pop(_var, None)
 
 from fastapi.testclient import TestClient  # noqa: E402
 from pymongo import MongoClient  # noqa: E402
@@ -55,6 +55,13 @@ def member(client):
 def other_member(client):
     data = _signup(client, "other@test.local", "Oli Other")
     return {"user": data["user"], "headers": {"Authorization": f"Bearer {data['token']}"}}
+
+
+@pytest.fixture(scope="session")
+def owner(client, db):
+    data = _signup(client, "owner@test.local", "Olga Owner")
+    db.users.update_one({"email": "owner@test.local"}, {"$set": {"role": "owner"}})
+    return {"user": {**data["user"], "role": "owner"}, "headers": {"Authorization": f"Bearer {data['token']}"}}
 
 
 @pytest.fixture(scope="session")

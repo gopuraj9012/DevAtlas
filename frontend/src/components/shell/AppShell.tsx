@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import * as Collapsible from "@radix-ui/react-collapsible";
 import {
   BookMarked, Boxes, ChevronRight, FileCode2, FileUp, GitCompare, GraduationCap, LayoutDashboard, LogOut, MessageSquareWarning,
-  Network, PanelLeft, PencilLine, PieChart, Plus, Rocket, Scale, Search, ShieldCheck, SpellCheck, Users, Workflow, type LucideIcon,
+  Network, PanelLeft, UserCog, PencilLine, PieChart, Plus, Rocket, Scale, Search, ShieldCheck, SpellCheck, Users, Workflow, type LucideIcon,
 } from "lucide-react";
 import { api, type Overview, type Project, type System } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -13,7 +13,7 @@ import { cn, initials } from "@/lib/utils";
 import { Tip } from "@/components/ui/tooltip";
 import { SearchDialog } from "@/components/kb/SearchDialog";
 
-interface NavItem { to: string; label: string; icon: LucideIcon; editorOnly?: boolean }
+interface NavItem { to: string; label: string; icon: LucideIcon; editorOnly?: boolean; ownerOnly?: boolean }
 
 const NAV: { group: string; items: NavItem[] }[] = [
   { group: "Workspace", items: [
@@ -40,6 +40,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
     { to: "/feedback", label: "Feedback", icon: MessageSquareWarning },
     { to: "/ingest", label: "Import codebase", icon: FileUp, editorOnly: true },
     { to: "/authoring", label: "Write a doc", icon: PencilLine, editorOnly: true },
+    { to: "/admin", label: "Admin", icon: UserCog, ownerOnly: true },
   ] },
 ];
 
@@ -121,7 +122,7 @@ function SystemGroup({ system, projects, collapsed, canEdit }: { system: System;
 }
 
 export function AppShell({ children, toc, wide }: { children: ReactNode; toc?: ReactNode; wide?: boolean }) {
-  const { user, canEdit, logout } = useAuth();
+  const { user, canEdit, isOwner, logout } = useAuth();
   const collapsed = useShell((s) => s.collapsed);
   const toggle = useShell((s) => s.toggle);
   const setSearchOpen = useShell((s) => s.setSearchOpen);
@@ -152,7 +153,7 @@ export function AppShell({ children, toc, wide }: { children: ReactNode; toc?: R
             {NAV.map((g) => (
               <div key={g.group} className="space-y-0.5">
                 {!collapsed && <div className="micro-label px-2.5 pb-1 text-[10.5px]">{g.group}</div>}
-                {g.items.filter((i) => !i.editorOnly || canEdit).map((i) => <NavRow key={i.to} item={i} collapsed={collapsed} />)}
+                {g.items.filter((i) => (!i.editorOnly || canEdit) && (!i.ownerOnly || isOwner)).map((i) => <NavRow key={i.to} item={i} collapsed={collapsed} />)}
               </div>
             ))}
             <div className="space-y-1 border-t border-border pt-3">
@@ -227,7 +228,7 @@ export function AppShell({ children, toc, wide }: { children: ReactNode; toc?: R
 }
 
 function MobileNav() {
-  const { canEdit, logout } = useAuth();
+  const { canEdit, isOwner, logout } = useAuth();
   const [open, setOpen] = useState(false);
   return (
     <div className="md:hidden">
@@ -236,7 +237,7 @@ function MobileNav() {
       </button>
       {open && (
         <nav id="mobile-nav" aria-label="Main" className="fixed inset-x-0 top-14 z-40 max-h-[calc(100vh-84px)] overflow-y-auto border-b border-border bg-card p-3 shadow-lift">
-          {NAV.flatMap((g) => g.items).filter((i) => !i.editorOnly || canEdit).map((i) => (
+          {NAV.flatMap((g) => g.items).filter((i) => (!i.editorOnly || canEdit) && (!i.ownerOnly || isOwner)).map((i) => (
             <NavLink key={i.to} to={i.to} onClick={() => setOpen(false)} className={({ isActive }) => cn("flex h-10 items-center gap-2.5 rounded-md px-3 text-sm font-medium", isActive ? "bg-accent text-primary" : "hover:bg-secondary")}>
               <i.icon className="h-4 w-4" aria-hidden /> {i.label}
             </NavLink>

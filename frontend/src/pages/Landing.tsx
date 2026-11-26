@@ -1,6 +1,8 @@
 import { useState, type CSSProperties, type FormEvent } from "react";
-import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Navigate, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { AlertCircle, ArrowRight, BookOpen, Rocket, ShieldCheck } from "lucide-react";
+import { api, type AuthConfig } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
@@ -93,7 +95,12 @@ export default function Landing() {
   const { user, loading, login, signup } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [params] = useSearchParams();
+  const [invite, setInvite] = useState(params.get("invite") ?? "");
+  const [mode, setMode] = useState<"signin" | "signup">(params.get("invite") ? "signup" : "signin");
+  const config = useQuery({ queryKey: ["auth-config"], queryFn: () => api<AuthConfig>("/auth/config"), staleTime: 60_000 });
+  const signupMode = config.data?.signup_mode ?? "open";
+  const showInvite = mode === "signup" && (signupMode !== "open" || Boolean(params.get("invite")));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
@@ -111,7 +118,7 @@ export default function Landing() {
     setError(null);
     try {
       if (mode === "signin") await login(email, password);
-      else await signup(email, password, name);
+      else await signup(email, password, name, invite.trim());
       navigate(from, { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign in failed.");
@@ -211,6 +218,12 @@ export default function Landing() {
                 <Input id="password" type="password" autoComplete={mode === "signin" ? "current-password" : "new-password"} required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} placeholder={mode === "signup" ? "8+ characters" : ""} />
               </div>
             </div>
+            {showInvite && (
+              <div className="mt-3 animate-fade-in">
+                <Label htmlFor="invite">Invite code{signupMode === "domain" ? " (not needed with a company email)" : ""}</Label>
+                <Input id="invite" value={invite} onChange={(e) => setInvite(e.target.value)} placeholder="From the invite link an owner sent you" className="font-mono" autoComplete="off" />
+              </div>
+            )}
             {error && (
               <div role="alert" className="mt-3 flex animate-fade-in items-start gap-2 text-[13px] text-destructive">
                 <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden /> {error}
@@ -221,7 +234,13 @@ export default function Landing() {
               {!busy && <ArrowRight className="transition-transform duration-200 group-hover:translate-x-0.5" />}
             </Button>
             <p className="mt-2 text-center text-[12px] text-muted-foreground">
-              Email and password sign-in{mode === "signup" ? " · new accounts start as engineers" : ""}
+              {mode === "signin"
+                ? "Email and password sign-in"
+                : signupMode === "invite"
+                  ? "Sign-up is by invitation only"
+                  : signupMode === "domain"
+                    ? `Use your ${config.data?.allowed_domains.join(" or ")} email, or an invite code`
+                    : "New accounts start as engineers"}
             </p>
           </form>
         </div>

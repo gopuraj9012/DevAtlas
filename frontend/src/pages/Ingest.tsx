@@ -2,7 +2,8 @@ import { useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Cloud, FileArchive, FolderGit2, FolderOpen, FolderUp, GitBranch, Lock, type LucideIcon } from "lucide-react";
 import { toast } from "sonner";
-import { api, type IngestResult as Result } from "@/lib/api";
+import { useQuery } from "@tanstack/react-query";
+import { api, type AuthConfig, type ImportSource, type IngestResult as Result } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { AppShell } from "@/components/shell/AppShell";
@@ -47,7 +48,10 @@ export default function Ingest() {
   const qc = useQueryClient();
   const input = useRef<HTMLInputElement>(null);
   const zipInput = useRef<HTMLInputElement>(null);
-  const [source, setSource] = useState<Source>("folder");
+  const config = useQuery({ queryKey: ["auth-config"], queryFn: () => api<AuthConfig>("/auth/config"), staleTime: 60_000 });
+  const allowed = SOURCES.filter(([k]) => !config.data || config.data.import_sources.includes((k === "zip" ? "archive" : k) as ImportSource));
+  const [picked, setSource] = useState<Source>("folder");
+  const source: Source = allowed.some(([k]) => k === picked) ? picked : (allowed[0]?.[0] ?? picked);
   const [reading, setReading] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -106,7 +110,7 @@ export default function Ingest() {
     <AppShell>
       <PageHeader eyebrow="Import" title="Import an existing codebase" description="DevAtlas reads the .sln and .csproj files and greps the source for stack and risk signals, then generates draft docs marked IMPORTED. Upload a folder or a zip, or point it at a GitHub, Bitbucket or any Git repository." />
       <div className="mb-6 grid grid-cols-2 gap-1 rounded-lg border border-border bg-card p-1 sm:flex sm:w-fit" role="group" aria-label="Source">
-        {SOURCES.map(([k, label, Icon]) => (
+        {allowed.map(([k, label, Icon]) => (
           <button key={k} type="button" aria-pressed={source === k} onClick={() => { setSource(k); setNote(null); }} className={cn("inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 text-[13px] font-medium transition-colors", source === k ? "bg-accent text-primary" : "text-muted-foreground hover:text-foreground")}>
             <Icon className="h-4 w-4" aria-hidden />{label}
           </button>
