@@ -148,7 +148,7 @@ export interface TeamMember {
   id: string; name: string; title: string; role: Role; systems: System[]; owns: string[]; ask_about: string; email: string;
 }
 export interface ProjectDetail extends Omit<Project, "doc_count" | "checklist"> {
-  docs: ArticleSummary[]; owner_profile: TeamMember | null;
+  docs: ArticleSummary[]; owner_profile: TeamMember | null; codebase?: string;
 }
 
 export interface ChecklistStep {
@@ -266,6 +266,49 @@ export interface ServiceGraph {
   note: string;
 }
 
+/* ---- code map ---- */
+export type CodeLayer = "Controller" | "Razor page" | "Web Forms page" | "Service" | "BAL" | "DAL" | "Interface" | "Model" | "Validation" | "Infrastructure" | "Other";
+export type Confidence = "exact" | "interface" | "likely" | "ambiguous" | "external";
+export interface CodeStats {
+  files: number; view_files: number; script_files: number; types: number; methods: number; properties: number; actions: number;
+  calls_resolved: number; calls_external: number; front_end_links: number; links_unresolved: number; ajax_calls: number; parse_errors: number;
+  layers: Partial<Record<CodeLayer, number>>;
+}
+export interface CodeTypeSummary {
+  id: string; name: string; kind: string; layer: CodeLayer; namespace: string; file: string; controller?: string | null; markup?: string | null;
+  methods: number; properties: number; actions: number;
+}
+export interface CodeViewSummary { path: string; name: string; kind: string }
+export interface CodeOverview {
+  codebase: string; name: string; stats: CodeStats; generated_at: string; generated_by?: string; types: CodeTypeSummary[]; views: CodeViewSummary[];
+}
+export interface CodeCall { label: string; line: number; targets: string[]; confidence: Confidence; via?: string | null; creates?: string }
+export interface CodeCaller { id: string; label: string; line: number; confidence: Confidence; kind: string; ui_kind?: string; view?: string }
+export interface CodeResult { kind: string; args: (string | null)[]; line: number; view?: string | null; target_label?: string; targets?: string[] }
+export interface CodeMember {
+  id: string; kind: "method" | "constructor" | "property" | "field" | "event" | "enum_value"; name: string; signature: string; line: number;
+  return_type?: string; type?: string; params?: { name: string; type: string }[]; modifiers: string[]; attributes: { name: string; args: string[] }[];
+  accessors?: string[]; is_action?: boolean; action_name?: string; http?: { verbs: string[]; routes: string[] };
+  calls?: CodeCall[]; results?: CodeResult[]; called_by: CodeCaller[]; ui_callers: CodeCaller[];
+}
+export interface CodeType {
+  id: string; name: string; kind: string; namespace: string; full_name: string; file: string; files: string[]; line: number; layer: CodeLayer;
+  bases: string[]; base_types: string[]; implemented_by: string[]; attributes: { name: string; args: string[] }[]; modifiers: string[];
+  dependencies: string[]; used_by: string[]; controller?: string | null; area?: string | null; markup?: string | null; members: CodeMember[];
+}
+export interface CodeLink {
+  kind: string; line: number; text?: string; url?: string; action?: string | null; controller?: string | null; area?: string | null;
+  page?: string | null; handler?: string | null; method?: string; targets: string[]; view_target?: string;
+}
+export interface CodeView {
+  path: string; name: string; kind: string; model?: string | null; layout?: string | null; layout_resolved?: string | null; layout_source?: string | null;
+  partials: { name: string; line: number; resolved?: string | null }[]; components: { name: string; line: number }[]; links: CodeLink[];
+  events: { control: string; control_type: string; event: string; handler: string; line: number; targets?: string[] }[];
+  controls: { src: string; line: number; resolved?: string | null }[]; code_behind_type?: string; route?: string | null;
+  rendered_by: { id: string; label: string; kind: string }[]; used_as_layout_by: string[]; used_as_partial_by: { path: string; line: number }[];
+}
+export interface CodeSearchHit { type: string | null; member: string | null; view?: string; label: string; layer: string }
+
 export type SignupMode = "open" | "domain" | "invite";
 export type ImportSource = "folder" | "archive" | "github" | "bitbucket" | "git";
 export interface AuthConfig { signup_mode: SignupMode; allowed_domains: string[]; import_sources: ImportSource[] }
@@ -288,6 +331,7 @@ export interface IngestResult {
   projects: { slug: string; name: string; system: System; framework: string; stack: string[]; created: boolean }[];
   articles: { slug: string; title: string; doc_id: string; section: string; project: string; created: boolean }[];
   truncated: boolean;
+  code?: CodeStats & { codebase: string };
   source?: {
     kind: "github" | "bitbucket" | "git" | "archive"; repo?: string; host?: string; name?: string; ref?: string | null; path?: string | null;
     url?: string; files_read: number; files_skipped: number; truncated: boolean; authenticated?: boolean;

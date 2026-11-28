@@ -227,3 +227,20 @@ Router `admin_router` (`/api/admin`, `Depends(require_owner)`): 401 without a to
 - `GET /admin/summary` → `{users, active, by_role{engineer,maintainer,owner}, pending_invites}`.
 - Bootstrap: emails in `BOOTSTRAP_OWNERS` are promoted to owner at startup only while no active owner exists (`user.bootstrap_owner`).
 Collections: `settings` (single doc `_id: "app"`), `invites`, `audit`; `users` gains `active`, `session_version`, `last_login_at`.
+
+## Code map (deep code documentation)
+Every import also builds a code map (`backend/code_index.py`, tree-sitter C# parser) for the imported codebase. Projects from that import carry `codebase`.
+- `GET /api/projects/{slug}/code` → `{codebase, name, stats, generated_at, generated_by, types: CodeTypeSummary[], views: [{path,name,kind}]}` · 404 when the project has no code map yet.
+  `stats = {files, view_files, script_files, types, methods, properties, actions, calls_resolved, calls_external, front_end_links, links_unresolved, ajax_calls, parse_errors, layers{}}`.
+- `GET /api/projects/{slug}/code/type?id=<full name>` → `CodeType` = `{id, name, kind, namespace, file, files[], line, layer, bases[], base_types[], implemented_by[], attributes[], dependencies[], used_by[], controller?, area?, markup?, members[]}`.
+  `layer` ∈ Controller | Razor page | Web Forms page | Service | BAL | DAL | Interface | Model | Validation | Infrastructure | Other.
+  Member = `{id, kind, name, signature, line, params?, return_type?, type?, modifiers[], attributes[], is_action?, http?{verbs[],routes[]}, results?[], calls?[], called_by[], ui_callers[]}`.
+  `results` (controller actions / Razor Pages): `{kind: view|partial|redirect_action|redirect_page|json|ok|…, view?, targets?[], target_label?, line}`.
+  `calls`: `{label, line, targets[], confidence: exact|interface|likely|ambiguous|external, via?, creates?}`; `called_by`: `{id, label, line, confidence, kind: call|new|redirect}`;
+  `ui_callers`: `{id (view path), label, line, kind: "ui", ui_kind: actionlink|url_action|form|tag_helper|page_link|href|ajax|fetch|page_method|event|lifecycle|page_handler|child_action|postback, view}`.
+- `GET /api/projects/{slug}/code/view?path=` → `CodeView` with `kind` (view, partial, layout, viewstart, razor_page, component, webform, user_control, master_page, web_service, handler, script), `model`, `layout`/`layout_resolved`/`layout_source`, `partials[]`, `components[]`, `controls[]` (Web Forms Register Src), `links[]` (each with resolved `targets[]` or `view_target`), `events[]` (server control events → handler targets), `code_behind_type`, `rendered_by[]`, `used_as_layout_by[]`, `used_as_partial_by[]`.
+- `GET /api/projects/{slug}/code/search?q=` → `[{type, member, view?, label, layer}]` (max 100).
+- `GET /api/projects/{slug}/code/export.md` → the full deep doc as Markdown (attachment).
+- Each import also writes the KB article `<codebase>-code-map` (layers + controller/action/view table).
+- Storage: `code_types`, `code_views`, `code_meta` keyed by `codebase`, replaced on every re-import. Only names, signatures, line numbers and relationships are stored: no method bodies.
+- Ingest now also reads `.master .asmx .ashx .razor .vbhtml` and your own `.js` (vendor libraries such as jquery*, bootstrap*, *.min.js, lib/ are skipped).

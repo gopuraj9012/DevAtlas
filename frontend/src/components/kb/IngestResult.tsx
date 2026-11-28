@@ -54,6 +54,19 @@ export function IngestResult({ r, footer }: { r: Result; footer?: ReactNode }) {
         </ul>
       </Card>
 
+      {r.code && r.projects[0] && (
+        <Card className="flex flex-col gap-4 border-primary/20 p-6 sm:flex-row sm:items-center">
+          <div className="flex-1">
+            <h2 className="text-base font-bold">Code map built</h2>
+            <p className="mt-1 text-[13px] text-muted-foreground">
+              {r.code.types} types, {r.code.methods} methods, {r.code.actions} controller actions, {r.code.view_files} views and {r.code.ajax_calls} AJAX calls,
+              linked by {r.code.calls_resolved} resolved calls. Browse callers, called methods, views, layouts, partials and front-end callers for every method.
+            </p>
+          </div>
+          <Link to={`/projects/${r.projects[0].slug}?tab=code`} className="shrink-0 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-deep">Open code map →</Link>
+        </Card>
+      )}
+
       <Card className="p-6">
         <h2 className="mb-3 text-base font-bold">Documents generated</h2>
         <ul className="divide-y divide-border">

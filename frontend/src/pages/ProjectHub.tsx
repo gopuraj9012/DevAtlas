@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyPanel, ErrorBanner, FrameworkBadge, MicroLabel, OriginTag, Pill, ProgressMeter, SystemDot } from "@/components/kb/Bits";
 import { CheckCircle, ProjectChecklist, useChecklist, useTickStep } from "@/components/kb/ProjectChecklist";
 import { StoredProcedures } from "@/components/kb/StoredProcedures";
+import { CodeMap } from "@/components/kb/CodeMap";
 
 const SECTION_LABEL: Record<string, string> = {
   onboarding: "Onboarding", architecture: "Architecture", standards: "Standards", data: "Data", integration: "Integration", deployment: "Deployment", operations: "Operations",
@@ -116,6 +117,7 @@ export default function ProjectHub() {
           <Tabs value={tab} onValueChange={setTab}>
             <TabsList>
               <TabsTrigger value="overview">Overview</TabsTrigger>
+              {p.codebase && <TabsTrigger value="code">Code map</TabsTrigger>}
               <TabsTrigger value="checklist">Checklist</TabsTrigger>
               {p.system === "legacy" && <TabsTrigger value="procedures">Stored procs</TabsTrigger>}
               <TabsTrigger value="architecture">Architecture</TabsTrigger>
@@ -140,6 +142,7 @@ export default function ProjectHub() {
                 <div className="lg:sticky lg:top-20 lg:self-start"><OnboardingCard slug={slug} onOpen={() => setTab("checklist")} /></div>
               </div>
             </TabsContent>
+            {p.codebase && <TabsContent value="code" className="pt-6"><CodeMap slug={slug} /></TabsContent>}
             <TabsContent value="checklist" className="pt-6"><ProjectChecklist slug={slug} /></TabsContent>
             {p.system === "legacy" && <TabsContent value="procedures" className="pt-6"><StoredProcedures slug={slug} /></TabsContent>}
             <TabsContent value="architecture" className="pt-6"><DocGroups docs={p.docs} sections={["architecture", "data", "integration"]} canEdit={canEdit} system={p.system} /></TabsContent>

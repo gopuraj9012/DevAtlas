@@ -41,6 +41,7 @@ Hard rules that will break the deploy if ignored:
 │   ├── ingest.py            # static analysis of an uploaded .NET folder (468)
 │   ├── github_repo.py       # read a repo straight from GitHub (233)
 │   ├── repo_sources.py      # zip upload, Bitbucket and any-Git-URL readers
+│   ├── code_index.py        # deep code map: C# parser, call graph, views, AJAX links
 │   ├── search.py            # ranked cross-collection search (341)
 │   ├── impact.py            # contract impact graph (158)
 │   ├── contract_export.py   # JSON Schema + T-SQL DDL (276)
@@ -161,6 +162,7 @@ Roughly ten groups:
 **Feedback** — `GET /feedback`, `GET /feedback/meta`, `GET /feedback/targets`, `POST /feedback`, `POST /feedback/{id}/vote`, `POST /feedback/{id}/status` (Maint.)
 **Insight** — `GET /coverage/migration`, `GET /architecture/service-graph`
 **Progress** — `GET /path`, `GET /progress`, `POST /progress/step`, `POST /progress/article`
+**Code map** — `GET /projects/{slug}/code`, `/code/type?id=`, `/code/view?path=`, `/code/search?q=`, `/code/export.md`
 **Admin** (owner only) — `GET /admin/users`, `PUT /admin/users/{id}`, `GET/PUT /admin/settings`, `GET/POST /admin/invites`, `DELETE /admin/invites/{id}`, `GET /admin/audit`, `GET /admin/summary`; public `GET /auth/config`
 
 51 endpoints total, 3 of them public. Exact request/response shapes belong in `contracts.md` — read it before changing any of them.

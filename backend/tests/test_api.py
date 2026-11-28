@@ -445,7 +445,7 @@ def test_ingest_api(client, maintainer, member, db):
     assert all(p["created"] for p in r.json()["projects"])
     again = client.post("/api/ingest", json={"files": FILES}, **{H: maintainer[H]}).json()
     assert not any(a["created"] for a in again["articles"])
-    assert db.articles.count_documents({"origin": "IMPORTED"}) == 5
+    assert db.articles.count_documents({"origin": "IMPORTED"}) == 6  # 5 analysis docs + the code map overview
     p = client.get("/api/projects/legacy-web", **{H: member[H]}).json()
     assert any(d["slug"] == "legacy-web-architecture" for d in p["docs"])
 

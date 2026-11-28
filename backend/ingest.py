@@ -9,7 +9,11 @@ import posixpath
 import re
 from collections import Counter
 
-EXTENSIONS = {".cs", ".csproj", ".sln", ".config", ".json", ".cshtml", ".aspx", ".ascx", ".asax", ".sql", ".md", ".xml", ".vb", ".vbproj", ".props", ".targets"}
+EXTENSIONS = {".cs", ".csproj", ".sln", ".config", ".json", ".cshtml", ".vbhtml", ".razor", ".aspx", ".ascx", ".asax", ".master", ".asmx", ".ashx",
+              ".sql", ".md", ".xml", ".vb", ".vbproj", ".props", ".targets", ".js"}
+# Third-party scripts carry no information about this codebase
+VENDOR_JS = re.compile(r"(\.min\.js$|^(jquery|bootstrap|modernizr|respond|knockout|angular|react|vue|popper|moment|lodash|underscore|select2|datatables|kendo|globalize|_references|microsoft|webforms|webuivalidation|gridview|menustandards|smartnav|focus|treeview|detailsview)[\w.-]*\.js$)", re.I)
+VENDOR_DIRS = {"lib", "vendor", "plugins", "wwwroot/lib"}
 SKIP_DIRS = {"bin", "obj", "node_modules", "packages", ".git", ".vs", "dist", "build"}
 MAX_FILE_BYTES = 400 * 1024
 MAX_FILES = 6000
@@ -43,6 +47,8 @@ def is_candidate(path: str) -> bool:
     if any(p.lower() in SKIP_DIRS for p in parts[:-1]):
         return False
     ext = posixpath.splitext(parts[-1].lower())[1] if parts else ""
+    if ext == ".js" and (VENDOR_JS.search(parts[-1]) or any(p.lower() in VENDOR_DIRS for p in parts[:-1])):
+        return False
     return ext in EXTENSIONS
 
 

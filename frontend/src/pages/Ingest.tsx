@@ -25,7 +25,10 @@ const SOURCES: [Source, string, LucideIcon][] = [
 ];
 const MAX_ZIP = 25 * 1024 * 1024;
 
-const EXT = [".cs", ".csproj", ".sln", ".config", ".json", ".cshtml", ".aspx", ".ascx", ".asax", ".sql", ".md", ".xml", ".vb", ".vbproj", ".props", ".targets"];
+const EXT = [".cs", ".csproj", ".sln", ".config", ".json", ".cshtml", ".vbhtml", ".razor", ".aspx", ".ascx", ".asax", ".master", ".asmx", ".ashx",
+  ".sql", ".md", ".xml", ".vb", ".vbproj", ".props", ".targets", ".js"];
+const VENDOR_JS = /(\.min\.js$|^(jquery|bootstrap|modernizr|respond|knockout|angular|react|vue|popper|moment|lodash|underscore|select2|datatables|kendo|globalize|_references|microsoft|webforms|webuivalidation|gridview|menustandards|smartnav|focus|treeview|detailsview)[\w.-]*\.js$)/i;
+const VENDOR_DIRS = new Set(["lib", "vendor", "plugins"]);
 const SKIP = new Set(["bin", "obj", "node_modules", ".git", "packages", "dist", "build", ".vs"]);
 const MAX_FILES = 6000, MAX_FILE = 400 * 1024, MAX_TOTAL = 7.5 * 1024 * 1024;
 
@@ -49,7 +52,8 @@ async function readFolder(list: FileList): Promise<FolderScan> {
     const path = (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name;
     const parts = path.split("/");
     const ext = f.name.includes(".") ? f.name.slice(f.name.lastIndexOf(".")).toLowerCase() : "";
-    if (parts.slice(0, -1).some((p) => SKIP.has(p.toLowerCase())) || !EXT.includes(ext) || f.size > MAX_FILE) { skipped++; continue; }
+    const vendor = ext === ".js" && (VENDOR_JS.test(f.name) || parts.slice(0, -1).some((p) => VENDOR_DIRS.has(p.toLowerCase())));
+    if (parts.slice(0, -1).some((p) => SKIP.has(p.toLowerCase())) || !EXT.includes(ext) || f.size > MAX_FILE || vendor) { skipped++; continue; }
     if (files.length >= MAX_FILES || bytes + f.size > MAX_TOTAL) { tooBig = true; skipped++; continue; }
     files.push({ path, content: await f.text() });
     bytes += f.size;
@@ -80,6 +84,7 @@ function WhatGetsRead() {
     ["*.aspx, *.cshtml", "Web Forms and MVC surfaces"],
     ["*.sql", "stored procedures you keep in the repo"],
     ["*.config, appsettings.json", "configuration shape"],
+    ["*.master, *.ascx, *.razor, *.js", "layouts, user controls, components and your own AJAX calls (vendor libraries skipped)"],
   ];
   return (
     <Card className="p-5 xl:sticky xl:top-20 xl:self-start">
