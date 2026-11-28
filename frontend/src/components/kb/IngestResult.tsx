@@ -1,75 +1,116 @@
+import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, FileText, FolderGit2 } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2 } from "lucide-react";
 import type { IngestResult as Result } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
-import { FrameworkBadge, MicroLabel, Pill, Stat, SystemDot } from "./Bits";
+import { FrameworkBadge, SystemDot } from "./Bits";
 
-export function IngestResult({ r }: { r: Result }) {
+function sourceLine(r: Result): ReactNode {
+  const s = r.source;
+  if (!s) return null;
+  if (s.kind === "archive") return <>Read <span className="font-mono">{s.name}</span>: {s.files_read} files read, {s.files_skipped} skipped.</>;
+  const host = s.kind === "bitbucket" ? "Bitbucket" : s.kind === "git" ? s.host : "GitHub";
   return (
-    <div className="space-y-6">
-      {r.source && (
-        <Card className="p-4 text-[13px]">
-          {r.source.kind === "archive" ? (
-            <>Read <span className="font-mono font-medium">{r.source.name}</span>: {r.source.files_read} files read, {r.source.files_skipped} skipped.</>
-          ) : (
-            <>
-              Read {r.source.kind === "bitbucket" ? "Bitbucket" : r.source.kind === "git" ? r.source.host : "GitHub"}{" "}
-              <a href={r.source.url} target="_blank" rel="noreferrer" className="break-all font-mono font-medium text-primary hover:underline">{r.source.repo}{r.source.ref ? `@${r.source.ref}` : ""}{r.source.path ? `/${r.source.path}` : ""}</a>:{" "}
-              {r.source.files_read} files read, {r.source.files_skipped} skipped{r.source.authenticated ? ", using the backend credentials" : ", anonymously"}.
-            </>
-          )}
-        </Card>
-      )}
-      {(r.truncated || r.source?.truncated) && (
-        <div className="flex items-start gap-2 rounded-xl border border-warning/30 bg-warning/5 px-4 py-3 text-[13px]"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />Some files were skipped because the import hit a size limit. The results cover what was read.</div>
-      )}
-      <div className="grid gap-3 sm:grid-cols-4">
-        <Stat label="Files analysed" value={r.stats.source_files} hint={`${r.stats.files} sent`} />
-        <Stat label="Lines" value={r.stats.lines.toLocaleString()} />
-        <Stat label="Projects" value={r.stats.projects} hint={r.stats.solutions.join(", ") || "No .sln"} />
-        <Stat label="Risk patterns" value={r.findings.filter((f) => f.risk).length} />
+    <>
+      Read {host}{" "}
+      <a href={s.url} target="_blank" rel="noreferrer" className="break-all font-mono text-primary hover:underline">{s.repo}{s.ref ? `@${s.ref}` : ""}{s.path ? `/${s.path}` : ""}</a>:{" "}
+      {s.files_read} files read, {s.files_skipped} skipped{s.authenticated ? ", using the backend credentials" : ""}.
+    </>
+  );
+}
+
+export function IngestResult({ r, footer }: { r: Result; footer?: ReactNode }) {
+  const truncated = r.truncated || r.source?.truncated;
+  return (
+    <div className="animate-fade-up space-y-5">
+      <div className="flex items-center gap-2.5 rounded-xl border border-primary/20 bg-accent px-4 py-3 text-sm" role="status">
+        <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" aria-hidden />
+        <span>
+          Scan complete — {r.projects.length} project {r.projects.length === 1 ? "entry" : "entries"} and {r.articles.length} documents added.
+          {r.source && <span className="text-muted-foreground"> {sourceLine(r)}</span>}
+        </span>
       </div>
-      <section>
-        <MicroLabel className="mb-2">Projects</MicroLabel>
-        <div className="grid gap-3 md:grid-cols-2">
+      {truncated && (
+        <div className="flex items-start gap-2 rounded-xl border border-warning/30 bg-warning/5 px-4 py-3 text-[13px]">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden />
+          Some files were skipped because the import hit a size limit. The results cover what was read.
+        </div>
+      )}
+
+      <Card className="p-6">
+        <h2 className="mb-3 text-base font-bold">Projects detected</h2>
+        <ul className="divide-y divide-border">
           {r.projects.map((p) => (
-            <Link key={p.slug} to={`/projects/${p.slug}`} className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-              <Card className="p-4 hover:shadow-lift">
-                <div className="flex items-center gap-2">
-                  <FolderGit2 className="h-4 w-4 text-primary" aria-hidden />
-                  <span className="flex-1 font-semibold">{p.name}</span>
-                  <FrameworkBadge framework={p.framework} system={p.system} />
-                  <Pill tone={p.created ? "green" : "neutral"}>{p.created ? "new" : "updated"}</Pill>
-                </div>
-                <div className="mt-1.5 flex flex-wrap gap-1.5"><SystemDot system={p.system} short className="text-[12px] text-muted-foreground" />{p.stack.slice(0, 5).map((s) => <Pill key={s}>{s}</Pill>)}</div>
-              </Card>
-            </Link>
-          ))}
-        </div>
-      </section>
-      <section>
-        <MicroLabel className="mb-2">Signals found</MicroLabel>
-        <div className="overflow-hidden rounded-xl border border-border bg-card">
-          {r.findings.map((f) => (
-            <div key={f.key} className="flex items-start gap-3 border-b border-border px-4 py-3 last:border-0">
-              {f.risk ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-label="Risk" /> : <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-primary" aria-hidden />}
-              <div className="min-w-0 flex-1">
-                <div className="text-sm font-medium">{f.label}</div>
-                <div className="truncate font-mono text-[11.5px] text-muted-foreground">{f.examples.join(" · ")}</div>
-              </div>
-              <span className="font-mono text-[12px] font-semibold">{f.count}</span>
-            </div>
-          ))}
-        </div>
-      </section>
-      <section>
-        <MicroLabel className="mb-2">Generated docs (marked IMPORTED)</MicroLabel>
-        <ul className="space-y-1">
-          {r.articles.map((a) => (
-            <li key={a.slug}><Link to={`/article/${a.slug}`} className="flex items-center gap-2 rounded-lg px-2 py-2 text-sm hover:bg-secondary"><FileText className="h-4 w-4 text-primary" aria-hidden /><span className="flex-1">{a.title}</span><span className="font-mono text-[11px] text-muted-foreground">{a.doc_id}</span></Link></li>
+            <li key={p.slug}>
+              <Link to={`/projects/${p.slug}`} className="flex items-center gap-3 py-2.5 hover:text-primary">
+                <SystemDot system={p.system} label={false} />
+                <span className="flex-1 font-medium">{p.name}</span>
+                <FrameworkBadge framework={p.framework} system={p.system} />
+                <span className={cn("w-20 text-right font-mono text-[11px] font-semibold tracking-wider", p.created ? "text-success" : "text-muted-foreground")}>{p.created ? "NEW" : "UPDATED"}</span>
+              </Link>
+            </li>
           ))}
         </ul>
-      </section>
+      </Card>
+
+      <Card className="p-6">
+        <h2 className="mb-3 text-base font-bold">Documents generated</h2>
+        <ul className="divide-y divide-border">
+          {[...r.articles].sort((a, b) => a.doc_id.localeCompare(b.doc_id)).map((a) => (
+            <li key={a.slug}>
+              <Link to={`/article/${a.slug}`} className="group flex items-center gap-4 py-3">
+                <span className="w-16 shrink-0 font-mono text-[11.5px] text-muted-foreground">{a.doc_id}</span>
+                <span className="flex-1 font-medium group-hover:text-primary">{a.title}</span>
+                <ArrowRight className="h-4 w-4 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5 group-hover:text-primary" aria-hidden />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </Card>
+
+      <Card className="p-6">
+        <h2 className="mb-3 text-base font-bold">Signals found in the code</h2>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[560px] text-left text-sm">
+            <thead>
+              <tr className="micro-label border-b border-border">
+                <th className="py-2 pr-4 font-semibold">Signal</th>
+                <th className="w-20 py-2 pr-4 font-semibold">Count</th>
+                <th className="py-2 font-semibold">Example</th>
+              </tr>
+            </thead>
+            <tbody>
+              {r.stats.solutions.length > 0 && (
+                <tr className="border-b border-border">
+                  <td className="py-2.5 pr-4">Visual Studio solutions</td>
+                  <td className="py-2.5 pr-4">{r.stats.solutions.length}</td>
+                  <td className="py-2.5 font-mono text-[12px] text-muted-foreground">{r.stats.solutions[0]}</td>
+                </tr>
+              )}
+              <tr className="border-b border-border">
+                <td className="py-2.5 pr-4">Project files</td>
+                <td className="py-2.5 pr-4">{r.stats.projects}</td>
+                <td className="py-2.5 font-mono text-[12px] text-muted-foreground">{r.projects.map((p) => p.name).join(", ")}</td>
+              </tr>
+              {r.findings.map((f) => (
+                <tr key={f.key} className="border-b border-border last:border-0">
+                  <td className="py-2.5 pr-4">
+                    <span className={cn("inline-flex items-center gap-1.5", f.risk && "text-destructive")}>
+                      {f.risk && <AlertTriangle className="h-3.5 w-3.5" aria-label="Risk" />}
+                      {f.label.replace("RISK · ", "")}
+                    </span>
+                  </td>
+                  <td className="py-2.5 pr-4">{f.count}</td>
+                  <td className="break-all py-2.5 font-mono text-[12px] text-muted-foreground">{f.examples[0]}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-3 text-[12px] text-muted-foreground">{r.stats.source_files} files and {r.stats.lines.toLocaleString()} lines analysed. Red rows are documented risk patterns.</p>
+      </Card>
+      {footer && <div className="flex justify-end">{footer}</div>}
     </div>
   );
 }

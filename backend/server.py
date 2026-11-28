@@ -20,7 +20,7 @@ import jwt
 from bson import ObjectId
 from bson.errors import InvalidId
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -1136,21 +1136,47 @@ class IngestFile(BaseModel):
 
 class IngestIn(BaseModel):
     files: list[IngestFile] = Field(default_factory=list, max_length=6000)
+    project: str | None = Field(default=None, max_length=120)  # slug of the project this code belongs to
 
 
 class GithubIngestIn(BaseModel):
     repo: str = Field(max_length=400)
     ref: str | None = Field(default=None, max_length=200)
     path: str | None = Field(default=None, max_length=400)
+    project: str | None = Field(default=None, max_length=120)
 
 
-async def ingest_repository(files: list[dict], user: dict) -> dict:
+async def ingest_repository(files: list[dict], user: dict, target_slug: str | None = None) -> dict:
+    """Analyse and persist. With `target_slug` (a project created first, then given its code):
+    a single detected .csproj fills that project in; with several, they are added alongside it
+    and the repository scan doc is attached to the target."""
+    db = get_db()
+    target = await db.projects.find_one({"slug": target_slug}) if target_slug else None
+    if target_slug and not target:
+        raise HTTPException(404, "The project you are importing into no longer exists.")
     if not files:
         raise HTTPException(400, "No files were sent. Pick a folder that contains a .NET solution.")
     result = analyze_upload(files)
     if not result["projects"]:
         raise HTTPException(422, "No .NET projects (.csproj) were found in those files.")
-    db = get_db()
+    if target:
+        detected = result["projects"]
+        if len(detected) == 1:
+            d = detected[0]
+            renamed = {d["name"]: target["name"]}
+            keep = {k: target[k] for k in ("slug", "name", "owner", "origin") if target.get(k)}
+            if target.get("description"):
+                keep["description"] = target["description"]
+            if target.get("repo"):
+                keep["repo"] = target["repo"]
+            result["projects"] = [{**d, **keep}]
+        else:
+            renamed = {}
+        for a in result["articles"]:
+            if a["slug"].endswith("-repository-scan"):
+                a["project"] = target["name"]
+            else:
+                a["project"] = renamed.get(a["project"], a["project"])
     stamp = now()
     saved_projects, saved_articles = [], []
     for p in result["projects"]:
@@ -1178,7 +1204,7 @@ async def ingest_repository(files: list[dict], user: dict) -> dict:
 @api_router.post("/ingest")
 async def ingest(body: IngestIn, user: dict = Depends(require_maintainer)):
     await require_source("folder")
-    result = await ingest_repository([f.model_dump() for f in body.files], user)
+    result = await ingest_repository([f.model_dump() for f in body.files], user, body.project)
     await _audit_import(user, {"kind": "folder"}, result)
     return result
 
@@ -1198,15 +1224,15 @@ async def ingest_github(body: GithubIngestIn, user: dict = Depends(require_maint
     except GithubError as e:
         raise HTTPException(e.status, e.detail)
     source.setdefault("kind", "github")
-    return await _ingest_from_source(files, source, user)
+    return await _ingest_from_source(files, source, user, body.project)
 
 
-async def _ingest_from_source(files: list[dict], source: dict, user: dict) -> dict:
+async def _ingest_from_source(files: list[dict], source: dict, user: dict, target: str | None = None) -> dict:
     """Shared tail for every remote/archive source: same analysis + persistence as the folder upload."""
     if not files:
         raise HTTPException(422, "No .NET files were found at that location.")
     try:
-        result = await ingest_repository(files, user)
+        result = await ingest_repository(files, user, target)
     except HTTPException as e:
         if e.status_code == 422:
             raise HTTPException(422, "No .NET projects (.csproj) were found at that location.")
@@ -1220,6 +1246,7 @@ class GitIngestIn(BaseModel):
     url: str = Field(max_length=500)
     ref: str | None = Field(default=None, max_length=200)
     path: str | None = Field(default=None, max_length=400)
+    project: str | None = Field(default=None, max_length=120)
 
 
 @api_router.post("/ingest/git")
@@ -1229,7 +1256,7 @@ async def ingest_git(body: GitIngestIn, user: dict = Depends(require_maintainer)
         files, source = await fetch_git_files(body.url, body.ref, body.path)
     except SourceError as e:
         raise HTTPException(e.status, e.detail)
-    return await _ingest_from_source(files, source, user)
+    return await _ingest_from_source(files, source, user, body.project)
 
 
 @api_router.post("/ingest/bitbucket")
@@ -1239,11 +1266,11 @@ async def ingest_bitbucket(body: GithubIngestIn, user: dict = Depends(require_ma
         files, source = await fetch_bitbucket_files(body.repo, body.ref, body.path)
     except SourceError as e:
         raise HTTPException(e.status, e.detail)
-    return await _ingest_from_source(files, source, user)
+    return await _ingest_from_source(files, source, user, body.project)
 
 
 @api_router.post("/ingest/archive")
-async def ingest_archive(file: UploadFile = File(...), user: dict = Depends(require_maintainer)):
+async def ingest_archive(file: UploadFile = File(...), project: str | None = Form(default=None, max_length=120), user: dict = Depends(require_maintainer)):
     await require_source("archive")
     name = (file.filename or "upload.zip").rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
     if not name.lower().endswith(".zip"):
@@ -1253,7 +1280,7 @@ async def ingest_archive(file: UploadFile = File(...), user: dict = Depends(requ
         files, source = await asyncio.to_thread(read_zip, data, name)
     except SourceError as e:
         raise HTTPException(e.status, e.detail)
-    return await _ingest_from_source(files, source, user)
+    return await _ingest_from_source(files, source, user, project)
 
 
 # ---------------------------------------------------------------- search

@@ -171,3 +171,23 @@ def test_git_api_empty_repo_422(client, maintainer, monkeypatch):
     monkeypatch.setattr(repo_sources, "_clone", lambda url, ref, dest, header: dest.mkdir(parents=True))
     r = client.post("/api/ingest/git", json={"url": "https://gitlab.com/a/empty.git"}, **{H: maintainer[H]})
     assert r.status_code == 422
+
+
+def test_import_into_created_project(client, maintainer, member):
+    from test_api import LEGACY_CSPROJ
+    p = client.post("/api/projects", json={"name": "Billing Portal", "system": "modern", "description": "Customer billing site"}, **{H: maintainer[H]}).json()
+    files = [
+        {"path": "BillingPortal/BillingPortal.sln", "content": "sln"},
+        {"path": "BillingPortal/Web/Web.csproj", "content": LEGACY_CSPROJ},
+        {"path": "BillingPortal/Web/HomeController.cs", "content": "using System.Web.Mvc;"},
+    ]
+    r = client.post("/api/ingest", json={"files": files, "project": p["slug"]}, **{H: maintainer[H]})
+    assert r.status_code == 200, r.text
+    proj = r.json()["projects"]
+    assert len(proj) == 1 and proj[0]["slug"] == "billing-portal" and proj[0]["created"] is False
+    hub = client.get("/api/projects/billing-portal", **{H: member[H]}).json()
+    assert hub["framework"] == ".NET Framework 4.8" and hub["system"] == "legacy"
+    assert hub["description"] == "Customer billing site" and hub["origin"] == "TEAM"
+    assert {d["slug"] for d in hub["docs"]} >= {"web-architecture", "web-setup", "billingportal-repository-scan"}
+    assert client.get("/api/projects/web", **{H: member[H]}).status_code == 404  # no duplicate project
+    assert client.post("/api/ingest", json={"files": files, "project": "gone"}, **{H: maintainer[H]}).status_code == 404

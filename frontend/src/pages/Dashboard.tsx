@@ -49,17 +49,17 @@ function NewProjectDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
     onSuccess: (p) => {
       qc.invalidateQueries({ queryKey: ["projects"] });
       qc.invalidateQueries({ queryKey: ["overview"] });
-      toast.success(`${p.name} created`);
+      toast.success(`${p.name} created. Now select its code folder.`);
       onOpenChange(false);
       setName(""); setDescription(""); setRepo("");
-      navigate(`/projects/${p.slug}`);
+      navigate(`/ingest?project=${encodeURIComponent(p.slug)}&new=1`);
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Could not create the project"),
   });
   const submit = (e: FormEvent) => { e.preventDefault(); create.mutate(); };
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent title="New project" description="Projects group docs, standards and an onboarding checklist for one codebase.">
+      <DialogContent title="New project" description="Step 1 of 2. Name the project; next you'll select its code folder so DevAtlas can analyse it.">
         <form onSubmit={submit} className="space-y-4">
           <div>
             <Label htmlFor="np-name">Name</Label>
@@ -82,7 +82,7 @@ function NewProjectDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button type="submit" loading={create.isPending} disabled={name.trim().length < 2}>Create project</Button>
+            <Button type="submit" loading={create.isPending} disabled={name.trim().length < 2}>Create and add code</Button>
           </div>
         </form>
       </DialogContent>

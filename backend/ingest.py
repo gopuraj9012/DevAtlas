@@ -17,7 +17,7 @@ MAX_CHARS = 14_000_000
 
 # key, label, regex, file glob suffixes, risk
 DETECTORS = [
-    ("webforms", "ASP.NET Web Forms pages", r"<%@\s*Page", (".aspx",), False),
+    ("webforms", "Web Forms pages (.aspx/.ascx/.asax)", r"<%@\s*(Page|Control|Application)\b", (".aspx", ".ascx", ".asax"), False),
     ("mvc5", "ASP.NET MVC 5 controllers", r"System\.Web\.Mvc", (".cs",), False),
     ("aspnetcore", "ASP.NET Core", r"WebApplication\.CreateBuilder|Microsoft\.AspNetCore", (".cs", ".csproj"), False),
     ("minimalapi", "Minimal API endpoints", r"\.Map(Get|Post|Put|Delete|Patch)\(", (".cs",), False),

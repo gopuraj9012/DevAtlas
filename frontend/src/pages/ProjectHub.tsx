@@ -1,6 +1,6 @@
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, FileText, FolderX, GitBranch, Plus, UserRound } from "lucide-react";
+import { ArrowRight, FileText, FolderUp, FolderX, GitBranch, Plus, UserRound } from "lucide-react";
 import { api, ApiError, type ArticleSummary, type ProjectDetail } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { timeAgo } from "@/lib/utils";
@@ -106,7 +106,12 @@ export default function ProjectHub() {
               <FrameworkBadge framework={p.framework} system={p.system} />
               <OriginTag origin={p.origin} />
             </div>
-            {canEdit && <Link to={`/authoring?system=${p.system}&project=${encodeURIComponent(p.name)}`}><Button variant="secondary"><Plus /> New doc</Button></Link>}
+            {canEdit && (
+              <div className="flex flex-wrap gap-2">
+                <Link to={`/ingest?project=${encodeURIComponent(p.slug)}`}><Button variant="secondary"><FolderUp /> Import code</Button></Link>
+                <Link to={`/authoring?system=${p.system}&project=${encodeURIComponent(p.name)}`}><Button variant="secondary"><Plus /> New doc</Button></Link>
+              </div>
+            )}
           </div>
           <Tabs value={tab} onValueChange={setTab}>
             <TabsList>
